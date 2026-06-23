@@ -1,0 +1,36 @@
+{
+  "migrationKey": "BTS_PAYROLL_PROD_COPY_TO_CURRENT_VERSION_V1",
+  "databaseName": "bts-payroll-prod-copy",
+  "generatedAt": "2026-06-20T15:39:01.690Z",
+  "issues": [
+    {
+      "priority": "WARNING",
+      "message": "Usuarios sin employmentStatus luego de la migración.",
+      "collection": "users",
+      "details": {
+        "count": 46
+      }
+    },
+    {
+      "priority": "WARNING",
+      "message": "Usuarios sin payrollCalculationMode luego de la migración.",
+      "collection": "users",
+      "details": {
+        "count": 46
+      }
+    },
+    {
+      "priority": "INFO",
+      "message": "PayrollPayment histórico sin snapshot.attendance.version. Es válido si todavía no se ejecutó la migración.",
+      "collection": "payrollpayments",
+      "details": {
+        "count": 194
+      }
+    }
+  ],
+  "summary": {
+    "blockers": 0,
+    "warnings": 2,
+    "info": 1
+  }
+}

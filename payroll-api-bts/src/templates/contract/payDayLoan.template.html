@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Contrato de Préstamo a Corto Plazo</title>
+
+    <style>
+        @page {
+            size: Letter;
+            margin: 18mm 16mm 18mm 16mm;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 18px;
+            background: #f8fafc;
+            color: #0f172a;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 12px;
+            line-height: 1.55;
+        }
+
+        .page {
+            width: 100%;
+            min-height: 100%;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 18px;
+            overflow: hidden;
+            box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+        }
+
+        .contract-header {
+            text-align: center;
+            margin-bottom: 22px;
+            padding: 22px 24px 18px;
+            border-bottom: 0;
+            background: #1976d2;
+            color: #ffffff;
+        }
+
+        .contract-title {
+            margin: 0;
+            color: #ffffff;
+            font-size: 18px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            line-height: 1.25;
+        }
+
+        .contract-subtitle {
+            margin: 8px auto 0;
+            max-width: 620px;
+            color: rgba(255, 255, 255, 0.88);
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            line-height: 1.35;
+        }
+
+        .country {
+            margin-top: 10px;
+            color: rgba(255, 255, 255, 0.88);
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        section {
+            padding-left: 24px;
+            padding-right: 24px;
+        }
+
+        .section-title {
+            margin: 22px 0 8px;
+            color: #0f172a;
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+            page-break-after: avoid;
+        }
+
+        p {
+            margin: 7px 0;
+            text-align: justify;
+        }
+
+        strong {
+            font-weight: 800;
+        }
+
+        ul,
+        ol {
+            margin: 8px 0 10px 18px;
+            padding: 0;
+        }
+
+        li {
+            margin: 3px 0;
+        }
+
+        .field-line {
+            display: inline-block;
+            min-width: 180px;
+            border-bottom: 1px solid #111827;
+            padding: 0 4px 1px;
+            font-weight: 700;
+        }
+
+        .field-line.long {
+            min-width: 300px;
+        }
+
+        .amount-box {
+            width: 280px;
+            margin: 12px auto;
+            padding: 10px 14px;
+            text-align: center;
+            border: 1px solid #bfdbfe;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 800;
+            color: #0f172a;
+            background: #eff6ff;
+        }
+
+        .info-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+            page-break-inside: avoid;
+        }
+
+        .info-table th,
+        .info-table td {
+            padding: 8px 9px;
+            border: 1px solid #d1d5db;
+            vertical-align: top;
+            text-align: left;
+        }
+
+        .info-table th {
+            width: 34%;
+            background: #f8fafc;
+            color: #374151;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .summary-grid {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+            page-break-inside: avoid;
+        }
+
+        .summary-grid td {
+            width: 50%;
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            vertical-align: top;
+            background: #ffffff;
+        }
+
+        .summary-label {
+            display: block;
+            color: #6b7280;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .summary-value {
+            display: block;
+            margin-top: 3px;
+            color: #111827;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .platform-box {
+            margin: 14px 24px 0;
+            padding: 10px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+            background: #f9fafb;
+            page-break-inside: avoid;
+        }
+
+        .platform-title {
+            margin-bottom: 6px;
+            color: #111827;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .signature-section {
+            margin-top: 30px;
+            padding-left: 24px;
+            padding-right: 24px;
+            page-break-inside: avoid;
+        }
+
+        .signature-title {
+            margin-bottom: 14px;
+            color: #111827;
+            font-size: 13px;
+            font-weight: 800;
+            text-transform: uppercase;
+            text-align: center;
+        }
+
+        .signature-grid {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .signature-grid td {
+            width: 50%;
+            padding: 12px;
+            vertical-align: top;
+            border: 1px solid #d1d5db;
+        }
+
+        .signature-image-box {
+            height: 78px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 8px;
+        }
+
+        .signature-image {
+            max-width: 220px;
+            max-height: 74px;
+            object-fit: contain;
+        }
+
+        .signature-line {
+            height: 1px;
+            margin: 24px 0 8px;
+            background: #111827;
+        }
+
+        .signature-role {
+            color: #111827;
+            font-weight: 800;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+
+        .signature-detail {
+            margin: 3px 0;
+            color: #374151;
+            font-size: 11px;
+        }
+
+        .footer-note {
+            margin: 20px 24px 0;
+            padding-bottom: 18px;
+            padding-top: 8px;
+            border-top: 1px solid #d1d5db;
+            color: #6b7280;
+            font-size: 10px;
+            text-align: center;
+        }
+
+        .page-break {
+            page-break-before: always;
+        }
+
+        .avoid-break {
+            page-break-inside: avoid;
+        }
+
+        .muted {
+            color: #6b7280;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <main class="page">
+        <header class="contract-header">
+            <h1 class="contract-title">
+                Contrato de Préstamo a Corto Plazo
+            </h1>
+
+            <div class="contract-subtitle">
+                Modalidad “Pay Day Loan” con garantías laborales y autorización de débitos
+            </div>
+
+            <div class="country">
+                República Dominicana
+            </div>
+        </header>
+
+        <section>
+            <div class="section-title">Entre:</div>
+
+            <p>
+                De una parte, <strong>{{lenderName}}</strong>, sociedad comercial organizada
+                conforme a las leyes de la República Dominicana, con domicilio social en la
+                República Dominicana, debidamente representada por su representante autorizado,
+                quien en lo adelante se denominará <strong>“EL PRESTAMISTA”</strong>.
+            </p>
+
+            <p>
+                Y de la otra parte, el(la) señor(a)
+                <span class="field-line long">{{debtorName}}</span>,
+                <strong>{{debtorNationality}}</strong>, mayor de edad, portador(a) de la cédula
+                de identidad y electoral No.
+                <span class="field-line">{{debtorDocument}}</span>,
+                domiciliado(a) en
+                <span class="field-line long">{{debtorAddress}}</span>,
+                empleado(a) de la empresa
+                <span class="field-line long">{{debtorCompanyName}}</span>,
+                quien en lo adelante se denominará <strong>“EL DEUDOR”</strong> o
+                <strong>“EL SOLICITANTE”</strong>.
+            </p>
+
+            <p>
+                Las partes, libre y voluntariamente, acuerdan celebrar el presente Contrato de
+                Préstamo a Corto Plazo, sujeto a las cláusulas siguientes:
+            </p>
+        </section>
+
+        <section>
+            <div class="section-title">Cláusula 1. Objeto del contrato</div>
+
+            <p>
+                EL PRESTAMISTA otorga a favor de EL DEUDOR un préstamo personal de corto plazo
+                bajo modalidad “Pay Day Loan”, por la suma de:
+            </p>
+
+            <div class="amount-box">
+                {{loanAmount}}
+            </div>
+
+            <p>
+                Monto recibido a satisfacción por EL DEUDOR mediante transferencia electrónica,
+                depósito bancario o cualquier medio autorizado.
+            </p>
+        </section>
+
+        <section>
+            <div class="section-title">Cláusula 2. Plazo y forma de pago</div>
+
+            <p>
+                El préstamo tendrá una duración de:
+                <strong>{{loanDurationText}}</strong>.
+            </p>
+
+            <p>
+                EL DEUDOR autoriza que el pago sea realizado automáticamente mediante débito
+                electrónico recurrente en cada fecha de cobro salarial, hasta la cancelación
+                total de la deuda.
+            </p>
+
+            <p>Los pagos podrán aplicarse a:</p>
+
+            <ul>
+                <li>Capital</li>
+                <li>Intereses</li>
+                <li>Cargos administrativos</li>
+                <li>Penalidades autorizadas</li>
+                <li>Gastos de gestión de cobro</li>
+            </ul>
+        </section>
+
+        <section>
+            <div class="section-title">Cláusula 3. Aceptación expresa de cláusulas y contingencias</div>
+
+            <p>
+                EL DEUDOR declara que ha leído, comprendido y aceptado voluntariamente todas las
+                disposiciones del presente contrato, incluyendo las cláusulas relacionadas con:
+            </p>
+
+            <ul>
+                <li>Débitos automáticos de nómina</li>
+                <li>Garantías laborales</li>
+                <li>Cesión parcial de beneficios laborales</li>
+                <li>Retención de pagos futuros</li>
+                <li>Cobro electrónico recurrente</li>
+                <li>Liquidación automática de deuda</li>
+                <li>Aplicación de vacaciones y doble sueldo</li>
+                <li>Consecuencias de incumplimiento</li>
+                <li>Gestión de cobros administrativos y legales</li>
+                <li>Utilización de información de la plataforma de Recursos Humanos de {{lenderName}}</li>
+            </ul>
+
+            <p>
+                Asimismo, EL DEUDOR reconoce que este préstamo constituye una obligación
+                financiera exigible y que el incumplimiento podrá generar acciones de cobro
+                conforme a las leyes de la República Dominicana.
+            </p>
+        </section>
+
+        <section>
+            <div class="section-title">Cláusula 4. Autorización de débito de nómina</div>
+
+            <p>
+                EL DEUDOR autoriza de manera expresa, libre, voluntaria e irrevocable a
+                EL PRESTAMISTA para gestionar y ejecutar débitos automáticos relacionados con el
+                pago del préstamo sobre:
+            </p>
+
+            <ul>
+                <li>Cuenta de nómina</li>
+                <li>Cuenta bancaria personal</li>
+                <li>Transferencias salariales</li>
+                <li>Plataformas de pago vinculadas</li>
+                <li>Métodos electrónicos registrados</li>
+            </ul>
+
+            <p>
+                EL DEUDOR acepta que los débitos podrán realizarse en cada período de pago
+                salarial, incluyendo quincenas, pagos extraordinarios, bonificaciones o cualquier
+                otro desembolso laboral.
+            </p>
+
+            <p>
+                La presente autorización permanecerá vigente hasta el pago total de la deuda.
+                Autorizando cualquier actualización de información en el programa de recursos
+                humanos como addendum al contrato de nueva actualización.
+            </p>
+        </section>
+
+        <section>
+            <div class="section-title">Cláusula 5. Cesión parcial de vacaciones</div>
+
+            <p>
+                EL DEUDOR autoriza expresamente que los valores económicos correspondientes a
+                vacaciones acumuladas, generadas o pendientes de pago puedan ser utilizados como
+                garantía parcial y mecanismo de compensación de la deuda objeto del presente
+                contrato.
+            </p>
+
+            <p>
+                Para esta solicitud, EL DEUDOR autoriza reservar
+                <strong>{{guaranteedDaysText}}</strong> como garantía del presente préstamo,
+                con un valor económico estimado de
+                <strong>{{estimatedGuaranteeAmount}}</strong>.
+            </p>
+
+            <p>
+                EL DEUDOR acepta que, en caso de incumplimiento o mora, EL PRESTAMISTA podrá
+                solicitar la aplicación parcial o total de dichos valores al saldo pendiente del
+                préstamo, conforme a los límites permitidos por la legislación dominicana.
+            </p>
+        </section>
+
+        <section>
+            <div class="section-title">Cláusula 6. Autorización sobre doble sueldo y beneficios extraordinarios</div>
+
+            <p>
+                EL DEUDOR autoriza de manera expresa que cualquier suma correspondiente a:
+            </p>
+
+            <ul>
+                <li>Regalía Pascual</li>
+                <li>Doble sueldo</li>
+                <li>Bonificaciones</li>
+                <li>Incentivos</li>
+                <li>Comisiones</li>
+                <li>Pagos extraordinarios</li>
+            </ul>
+
+            <p>
+                pueda ser utilizada parcial o totalmente para cubrir obligaciones pendientes
+                derivadas del presente contrato.
+            </p>
+
+            <p>
+                EL DEUDOR reconoce que esta autorización constituye una garantía voluntaria
+                otorgada a favor de EL PRESTAMISTA.
+            </p>
+        </section>
+
+        <section>
+            <div class="section-title">Cláusula 7. Liquidación automática en caso de terminación laboral</div>
+
+            <p>En caso de:</p>
+
+            <ul>
+                <li>Renuncia</li>
+                <li>Despido</li>
+                <li>Terminación de contrato</li>
+                <li>Desvinculación laboral</li>
+                <li>Suspensión definitiva</li>
+                <li>Liquidación laboral</li>
+            </ul>
+
+            <p>
+                EL DEUDOR autoriza expresamente la aplicación automática de prestaciones
+                laborales, vacaciones pendientes, regalía pascual, bonificaciones, salarios
+                pendientes y compensaciones laborales al pago total o parcial del saldo adeudado.
+            </p>
+
+            <p>
+                EL DEUDOR reconoce y acepta que esta disposición constituye una garantía adicional
+                de pago y un mecanismo de compensación autorizado voluntariamente.
+            </p>
+        </section>
+
+        <section>
+            <div class="section-title">Cláusula 8. Contingencias y eventos de riesgo</div>
+
+            <p>
+                EL DEUDOR reconoce que constituyen contingencias relevantes para el presente
+                contrato:
+            </p>
+
+            <ol>
+                <li>Cambio de empleo</li>
+                <li>Reducción salarial</li>
+                <li>Suspensión laboral</li>
+                <li>Incapacidad de pago</li>
+                <li>Cierre de cuenta bancaria</li>
+                <li>Rechazo de débitos automáticos</li>
+                <li>Información falsa o incompleta</li>
+                <li>Revocación unilateral de autorizaciones financieras</li>
+            </ol>
+
+            <p>
+                En cualquiera de estos casos, EL PRESTAMISTA podrá reestructurar la deuda, exigir
+                garantías adicionales, declarar vencimiento anticipado, ejecutar cobros
+                administrativos o iniciar acciones legales correspondientes.
+            </p>
+        </section>
+
+        <section>
+            <div class="section-title">Cláusula 9. Garantías adicionales</div>
+
+            <p>EL DEUDOR adicionalmente:</p>
+
+            <ul>
+                <li>Autoriza validación de empleo y salario mediante el software de Recursos Humanos.</li>
+                <li>Autoriza consulta de referencias personales y crediticias.</li>
+                <li>Autoriza contacto con empleador para fines de validación.</li>
+                <li>Autoriza notificaciones electrónicas, SMS y WhatsApp.</li>
+                <li>Reconoce validez legal de documentos digitales y firmas electrónicas.</li>
+                <li>Autoriza conservación digital de evidencia de aceptación contractual.</li>
+            </ul>
+        </section>
+
+        <section class="avoid-break">
+            <div class="section-title">Cláusula 10. Intereses y cargos</div>
+
+            <p>El préstamo generará las siguientes condiciones económicas:</p>
+
+            <table class="summary-grid">
+                <tr>
+                    <td>
+                        <span class="summary-label">Monto financiado</span>
+                        <span class="summary-value">{{loanAmount}}</span>
+                    </td>
+                    <td>
+                        <span class="summary-label">Cantidad de cuotas</span>
+                        <span class="summary-value">{{loanInstallments}}</span>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>
+                        <span class="summary-label">Cuota estimada</span>
+                        <span class="summary-value">{{loanInstallmentAmount}}</span>
+                    </td>
+                    <td>
+                        <span class="summary-label">Interés</span>
+                        <span class="summary-value">{{interestRateText}} {{interestRateTypeText}}</span>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>
+                        <span class="summary-label">Cargo administrativo</span>
+                        <span class="summary-value">{{adminFee}}</span>
+                    </td>
+                    <td>
+                        <span class="summary-label">Total intereses</span>
+                        <span class="summary-value">{{loanTotalInterest}}</span>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>
+                        <span class="summary-label">Total a pagar</span>
+                        <span class="summary-value">{{loanTotalToPay}}</span>
+                    </td>
+                    <td>
+                        <span class="summary-label">Primer pago estimado</span>
+                        <span class="summary-value">{{firstPaymentDate}}</span>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>
+                        <span class="summary-label">Último pago estimado</span>
+                        <span class="summary-value">{{lastPaymentDate}}</span>
+                    </td>
+                    <td>
+                        <span class="summary-label">Frecuencia de pago salarial</span>
+                        <span class="summary-value">{{paymentFrequency}}</span>
+                    </td>
+                </tr>
+            </table>
+
+            <p>
+                EL DEUDOR declara haber recibido información clara y suficiente sobre monto
+                financiado, total a pagar, fechas de cobro, intereses, penalidades y consecuencias
+                de mora.
+            </p>
+        </section>
+
+        <section class="avoid-break">
+            <div class="section-title">Resumen de garantía laboral</div>
+
+            <table class="summary-grid">
+                <tr>
+                    <td>
+                        <span class="summary-label">Días reservados</span>
+                        <span class="summary-value">{{guaranteedDaysText}}</span>
+                    </td>
+                    <td>
+                        <span class="summary-label">Valor estimado de garantía</span>
+                        <span class="summary-value">{{estimatedGuaranteeAmount}}</span>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>
+                        <span class="summary-label">Salario mensual de referencia</span>
+                        <span class="summary-value">{{monthlySalary}}</span>
+                    </td>
+                    <td>
+                        <span class="summary-label">Salario diario de referencia</span>
+                        <span class="summary-value">{{dailySalary}}</span>
+                    </td>
+                </tr>
+            </table>
+
+            <p>
+                Estos valores se usan como referencia para documentar la garantía laboral
+                comprometida en la solicitud y no sustituyen los cálculos finales que puedan
+                corresponder al momento de una liquidación laboral o compensación autorizada.
+            </p>
+        </section>
+
+        <section>
+            <div class="section-title">Cláusula 11. Validez electrónica</div>
+
+            <p>
+                Las partes reconocen plena validez jurídica a firmas electrónicas, aceptaciones
+                digitales, OTP, correos electrónicos, mensajes de texto, confirmaciones vía
+                plataforma, registros biométricos, logs electrónicos y evidencia digital de
+                aceptación contractual.
+            </p>
+
+            <p>
+                El desembolso de préstamo se reconoce como aceptación y aprobación del acuerdo
+                establecido, conforme a la legislación vigente de la República Dominicana.
+            </p>
+        </section>
+
+        <section>
+            <div class="section-title">Cláusula 12. Ley aplicable y jurisdicción</div>
+
+            <p>
+                El presente contrato será interpretado conforme al Código Civil Dominicano,
+                Código de Trabajo de la República Dominicana, Ley sobre Comercio Electrónico,
+                Documentos y Firmas Digitales, y demás normativas aplicables sobre obligaciones
+                civiles y financieras.
+            </p>
+
+            <p>
+                Las partes atribuyen competencia a los tribunales de la República Dominicana.
+            </p>
+        </section>
+
+        <section class="platform-box avoid-break">
+            <div class="platform-title">Información de plataforma</div>
+
+            <table class="info-table">
+                <tr>
+                    <th>Plataforma origen</th>
+                    <td>{{sourcePlatformName}}</td>
+                </tr>
+
+                <tr>
+                    <th>Código plataforma</th>
+                    <td>{{sourcePlatformCode}}</td>
+                </tr>
+
+                <tr>
+                    <th>Código producto</th>
+                    <td>{{sourceProductCode}}</td>
+                </tr>
+
+                <tr>
+                    <th>Sistema origen</th>
+                    <td>{{sourceSystemId}}</td>
+                </tr>
+
+                <tr>
+                    <th>Fecha de firma</th>
+                    <td>{{signedAt}}</td>
+                </tr>
+            </table>
+        </section>
+
+        <section class="signature-section">
+            <div class="signature-title">Firmas</div>
+
+            <table class="signature-grid">
+                <tr>
+                    <td>
+                        <div class="signature-image-box"></div>
+
+                        <div class="signature-line"></div>
+
+                        <div class="signature-role">EL PRESTAMISTA</div>
+                        <div class="signature-detail">Nombre: {{lenderName}}</div>
+                        <div class="signature-detail">Representante: {{lenderRepresentativeName}}</div>
+                        <div class="signature-detail">Cargo: {{lenderRepresentativeTitle}}</div>
+                    </td>
+
+                    <td>
+                        <div class="signature-image-box">
+                            <img class="signature-image" src="{{debtorSignatureImage}}" alt="Firma del deudor" />
+                        </div>
+
+                        <div class="signature-line"></div>
+
+                        <div class="signature-role">EL DEUDOR</div>
+                        <div class="signature-detail">Nombre: {{signatureName}}</div>
+                        <div class="signature-detail">Cédula: {{signatureDocument}}</div>
+                        <div class="signature-detail">Empresa donde labora: {{debtorCompanyName}}</div>
+                    </td>
+                </tr>
+            </table>
+        </section>
+
+        <section class="signature-section">
+            <table class="signature-grid">
+                <tr>
+                    <td>
+                        <div class="signature-image-box"></div>
+
+                        <div class="signature-line"></div>
+
+                        <div class="signature-role">TESTIGO</div>
+                        <div class="signature-detail">Nombre: ________________________________</div>
+                        <div class="signature-detail">Cédula: _________________________________</div>
+                    </td>
+
+                    <td>
+                        <div class="signature-image-box"></div>
+
+                        <div class="signature-line"></div>
+
+                        <div class="signature-role">VALIDACIÓN DIGITAL</div>
+                        <div class="signature-detail">IP: {{signatureIpAddress}}</div>
+                        <div class="signature-detail">Navegador: {{signatureUserAgent}}</div>
+                        <div class="signature-detail">Fecha: {{signedAt}}</div>
+                    </td>
+                </tr>
+            </table>
+        </section>
+
+        <footer class="footer-note">
+            Documento generado digitalmente desde {{sourcePlatformName}}.
+            Código de plataforma: {{sourcePlatformCode}}.
+            Este documento conserva evidencia electrónica de aceptación y firma.
+        </footer>
+    </main>
+</body>
+
+</html>

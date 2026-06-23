@@ -1,0 +1,503 @@
+{
+  "database": "bts-payroll-prod-copy",
+  "generatedAt": "2026-06-20T15:52:04.230Z",
+  "changeLog": [
+    {
+      "action": "ensureCompany",
+      "companyId": "6a36b720a031ad6493d17479"
+    },
+    {
+      "action": "ensureDepartments",
+      "callCenterDept": "6867dbc22cbbaf729ac7495c",
+      "tiDept": "686bf5ae2ed8c561a3401d63",
+      "rrhhDept": "6952bec6553aed4b2646f21b",
+      "limpiezaDept": "697b850ee006c803d3e17277"
+    },
+    {
+      "action": "ensureJobPositions",
+      "agentJob": "69430a771895d370837966ec",
+      "programmerJrJob": "694304ee35f93b779f532eb5",
+      "programmerSeniorJob": "6949984cbc82b930f555af69",
+      "supportJob": "694afd14afabc20b3f4172e2",
+      "cleanerJob": "697b8520e006c803d3e1728f"
+    },
+    {
+      "action": "ensureProjects",
+      "tripleProject": "6867dccc7326b0da379c3a86",
+      "conwasteProject": "686bef132ed8c561a3401c06",
+      "programmingProject": "686bf88bd837119183332c0e",
+      "itProject": "686bf610d837119183332b5f"
+    },
+    {
+      "action": "updateUsers",
+      "userUpdates": [
+        {
+          "group": "allUsersCompany",
+          "matched": 46,
+          "modified": 46
+        },
+        {
+          "group": "conwasteToCallCenterProject",
+          "matched": 8,
+          "modified": 8
+        },
+        {
+          "group": "tripleSToCallCenterProject",
+          "matched": 26,
+          "modified": 6
+        },
+        {
+          "group": "programmingToTI",
+          "matched": 4,
+          "modified": 4
+        },
+        {
+          "group": "programmingMissingJobToJr",
+          "matched": 2,
+          "modified": 2
+        },
+        {
+          "group": "supportToTI",
+          "matched": 5,
+          "modified": 4
+        },
+        {
+          "group": "limpieza",
+          "matched": 1,
+          "modified": 0
+        },
+        {
+          "group": "rrhh",
+          "matched": 0,
+          "modified": 0
+        }
+      ]
+    }
+  ],
+  "before": {
+    "companies": [],
+    "departments": [
+      {
+        "_id": "6865840c37f383c56c1c4682",
+        "name": "Programacion",
+        "isActive": true,
+        "isDeleted": false,
+        "code": "PROGRAMACION"
+      },
+      {
+        "_id": "6867dbc22cbbaf729ac7495c",
+        "name": "Triple S",
+        "isActive": true,
+        "isDeleted": false,
+        "code": "TRIPLE_S"
+      },
+      {
+        "_id": "686beed32ed8c561a3401bfd",
+        "name": "CONWASTE",
+        "isActive": true,
+        "isDeleted": false,
+        "code": "CONWASTE"
+      },
+      {
+        "_id": "686bf5ae2ed8c561a3401d63",
+        "name": "Tecnologia IT",
+        "isActive": true,
+        "isDeleted": false,
+        "code": "TECNOLOGIA_IT"
+      },
+      {
+        "_id": "6952bec6553aed4b2646f21b",
+        "name": "RRHH",
+        "code": "RRHH",
+        "isActive": true,
+        "isDeleted": false
+      },
+      {
+        "_id": "697b850ee006c803d3e17277",
+        "name": "Limpieza",
+        "code": "LIMPIEZA",
+        "isActive": true,
+        "isDeleted": false
+      }
+    ],
+    "jobpositions": [
+      {
+        "_id": "694304ee35f93b779f532eb5",
+        "name": "Programador Jr",
+        "department": "6865840c37f383c56c1c4682",
+        "isActive": true,
+        "isDeleted": false
+      },
+      {
+        "_id": "69430a771895d370837966ec",
+        "code": "AGENTE_DE_CALL_CENTER",
+        "name": "Agente de Call Center",
+        "department": "6867dbc22cbbaf729ac7495c",
+        "isActive": true,
+        "isDeleted": false
+      },
+      {
+        "_id": "69430aa81895d370837966f8",
+        "code": "AGENTE_DE_CALL_CENTER_2",
+        "name": "Agente de Call Center",
+        "department": "686beed32ed8c561a3401bfd",
+        "isActive": true,
+        "isDeleted": false
+      },
+      {
+        "_id": "6949984cbc82b930f555af69",
+        "code": "PROGRAMADOR_SENIOR",
+        "name": "Programador Senior",
+        "department": "6865840c37f383c56c1c4682",
+        "isActive": true,
+        "isDeleted": false
+      },
+      {
+        "_id": "694afd14afabc20b3f4172e2",
+        "code": "SOPORTE_TECNICO",
+        "name": "Soporte Tecnico",
+        "department": "686bf5ae2ed8c561a3401d63",
+        "isActive": true,
+        "isDeleted": false
+      },
+      {
+        "_id": "697b8520e006c803d3e1728f",
+        "code": "CONSERJE_DE_LIMPIEZA",
+        "name": "Conserje de limpieza",
+        "department": "697b850ee006c803d3e17277",
+        "isActive": true,
+        "isDeleted": false
+      }
+    ],
+    "projects": [
+      {
+        "_id": "686583f837f383c56c1c4675",
+        "name": "Calendario medico",
+        "isActive": true,
+        "isDeleted": false
+      },
+      {
+        "_id": "6867dccc7326b0da379c3a86",
+        "name": "Cuidados preventivos",
+        "isActive": true,
+        "isDeleted": false,
+        "code": "CUIDADOS_PREVENTIVOS"
+      },
+      {
+        "_id": "686bef132ed8c561a3401c06",
+        "name": "CONWASTE",
+        "isActive": true,
+        "isDeleted": false
+      },
+      {
+        "_id": "686bf610d837119183332b5f",
+        "name": "IT",
+        "isActive": true,
+        "isDeleted": false
+      },
+      {
+        "_id": "686bf88bd837119183332c0e",
+        "name": "Programacion",
+        "isActive": true,
+        "isDeleted": false
+      }
+    ],
+    "usersByOrg": [
+      {
+        "_id": {
+          "department": "(sin departamento)",
+          "jobPosition": "(sin puesto)",
+          "project": "(sin proyecto)"
+        },
+        "count": 6
+      },
+      {
+        "_id": {
+          "department": "CONWASTE",
+          "jobPosition": "(sin puesto)",
+          "project": "CONWASTE"
+        },
+        "count": 2
+      },
+      {
+        "_id": {
+          "department": "CONWASTE",
+          "jobPosition": "Agente de Call Center",
+          "project": "CONWASTE"
+        },
+        "count": 5
+      },
+      {
+        "_id": {
+          "department": "CONWASTE",
+          "jobPosition": "Agente de Call Center",
+          "project": "Cuidados preventivos"
+        },
+        "count": 1
+      },
+      {
+        "_id": {
+          "department": "Limpieza",
+          "jobPosition": "Conserje de limpieza",
+          "project": "(sin proyecto)"
+        },
+        "count": 1
+      },
+      {
+        "_id": {
+          "department": "Programacion",
+          "jobPosition": "(sin puesto)",
+          "project": "Programacion"
+        },
+        "count": 2
+      },
+      {
+        "_id": {
+          "department": "Programacion",
+          "jobPosition": "Programador Jr",
+          "project": "Programacion"
+        },
+        "count": 1
+      },
+      {
+        "_id": {
+          "department": "Programacion",
+          "jobPosition": "Programador Senior",
+          "project": "Programacion"
+        },
+        "count": 1
+      },
+      {
+        "_id": {
+          "department": "Tecnologia IT",
+          "jobPosition": "Soporte Tecnico",
+          "project": "IT"
+        },
+        "count": 1
+      },
+      {
+        "_id": {
+          "department": "Triple S",
+          "jobPosition": "(sin puesto)",
+          "project": "Cuidados preventivos"
+        },
+        "count": 5
+      },
+      {
+        "_id": {
+          "department": "Triple S",
+          "jobPosition": "Agente de Call Center",
+          "project": "Cuidados preventivos"
+        },
+        "count": 21
+      }
+    ]
+  },
+  "after": {
+    "companies": [
+      {
+        "_id": "6a36b720a031ad6493d17479",
+        "code": "BTS",
+        "legalName": "Blue Technology Solution",
+        "tradeName": "Blue Technology Solution",
+        "isActive": true,
+        "isDeleted": false
+      }
+    ],
+    "departments": [
+      {
+        "_id": "6865840c37f383c56c1c4682",
+        "name": "Programacion",
+        "isActive": false,
+        "isDeleted": true,
+        "code": "PROGRAMACION"
+      },
+      {
+        "_id": "6867dbc22cbbaf729ac7495c",
+        "name": "Call Center",
+        "isActive": true,
+        "isDeleted": false,
+        "code": "CALL_CENTER",
+        "company": "6a36b720a031ad6493d17479"
+      },
+      {
+        "_id": "686beed32ed8c561a3401bfd",
+        "name": "CONWASTE",
+        "isActive": false,
+        "isDeleted": true,
+        "code": "CONWASTE"
+      },
+      {
+        "_id": "686bf5ae2ed8c561a3401d63",
+        "name": "TI",
+        "isActive": true,
+        "isDeleted": false,
+        "code": "TI",
+        "company": "6a36b720a031ad6493d17479"
+      },
+      {
+        "_id": "6952bec6553aed4b2646f21b",
+        "name": "RRHH",
+        "code": "RRHH",
+        "isActive": true,
+        "isDeleted": false,
+        "company": "6a36b720a031ad6493d17479"
+      },
+      {
+        "_id": "697b850ee006c803d3e17277",
+        "name": "Limpieza",
+        "code": "LIMPIEZA",
+        "isActive": true,
+        "isDeleted": false,
+        "company": "6a36b720a031ad6493d17479"
+      }
+    ],
+    "jobpositions": [
+      {
+        "_id": "694304ee35f93b779f532eb5",
+        "name": "Programador Jr",
+        "department": "686bf5ae2ed8c561a3401d63",
+        "isActive": true,
+        "isDeleted": false,
+        "code": "PROGRAMADOR_JR",
+        "company": "6a36b720a031ad6493d17479"
+      },
+      {
+        "_id": "69430a771895d370837966ec",
+        "code": "AGENTE_DE_CALL_CENTER",
+        "name": "Agente de Call Center",
+        "department": "6867dbc22cbbaf729ac7495c",
+        "isActive": true,
+        "isDeleted": false,
+        "company": "6a36b720a031ad6493d17479"
+      },
+      {
+        "_id": "69430aa81895d370837966f8",
+        "code": "AGENTE_DE_CALL_CENTER_2",
+        "name": "Agente de Call Center",
+        "department": "6867dbc22cbbaf729ac7495c",
+        "isActive": false,
+        "isDeleted": true,
+        "company": "6a36b720a031ad6493d17479"
+      },
+      {
+        "_id": "6949984cbc82b930f555af69",
+        "code": "PROGRAMADOR_SENIOR",
+        "name": "Programador Senior",
+        "department": "686bf5ae2ed8c561a3401d63",
+        "isActive": true,
+        "isDeleted": false,
+        "company": "6a36b720a031ad6493d17479"
+      },
+      {
+        "_id": "694afd14afabc20b3f4172e2",
+        "code": "SOPORTE_TECNICO",
+        "name": "Soporte Tecnico",
+        "department": "686bf5ae2ed8c561a3401d63",
+        "isActive": true,
+        "isDeleted": false,
+        "company": "6a36b720a031ad6493d17479"
+      },
+      {
+        "_id": "697b8520e006c803d3e1728f",
+        "code": "CONSERJE_DE_LIMPIEZA",
+        "name": "Conserje de limpieza",
+        "department": "697b850ee006c803d3e17277",
+        "isActive": true,
+        "isDeleted": false,
+        "company": "6a36b720a031ad6493d17479"
+      }
+    ],
+    "projects": [
+      {
+        "_id": "686583f837f383c56c1c4675",
+        "name": "Calendario medico",
+        "isActive": true,
+        "isDeleted": false,
+        "company": "6a36b720a031ad6493d17479"
+      },
+      {
+        "_id": "6867dccc7326b0da379c3a86",
+        "name": "Triple S",
+        "isActive": true,
+        "isDeleted": false,
+        "code": "TRIPLE_S",
+        "company": "6a36b720a031ad6493d17479",
+        "department": "6867dbc22cbbaf729ac7495c",
+        "jobPosition": "69430a771895d370837966ec"
+      },
+      {
+        "_id": "686bef132ed8c561a3401c06",
+        "name": "Conwaste",
+        "isActive": true,
+        "isDeleted": false,
+        "code": "CONWASTE",
+        "company": "6a36b720a031ad6493d17479",
+        "department": "6867dbc22cbbaf729ac7495c",
+        "jobPosition": "69430a771895d370837966ec"
+      },
+      {
+        "_id": "686bf610d837119183332b5f",
+        "name": "IT",
+        "isActive": true,
+        "isDeleted": false,
+        "code": "IT",
+        "company": "6a36b720a031ad6493d17479",
+        "department": "686bf5ae2ed8c561a3401d63",
+        "jobPosition": "694afd14afabc20b3f4172e2"
+      },
+      {
+        "_id": "686bf88bd837119183332c0e",
+        "name": "Programacion",
+        "isActive": true,
+        "isDeleted": false,
+        "code": "PROGRAMACION",
+        "company": "6a36b720a031ad6493d17479",
+        "department": "686bf5ae2ed8c561a3401d63",
+        "jobPosition": "694304ee35f93b779f532eb5"
+      }
+    ],
+    "usersByOrg": [
+      {
+        "_id": {
+          "department": "(sin departamento)",
+          "jobPosition": "(sin puesto)",
+          "project": "(sin proyecto)"
+        },
+        "count": 6
+      },
+      {
+        "_id": {
+          "department": "Call Center",
+          "jobPosition": "Agente de Call Center",
+          "project": "Conwaste"
+        },
+        "count": 8
+      },
+      {
+        "_id": {
+          "department": "Call Center",
+          "jobPosition": "Agente de Call Center",
+          "project": "Triple S"
+        },
+        "count": 26
+      },
+      {
+        "_id": {
+          "department": "Limpieza",
+          "jobPosition": "Conserje de limpieza",
+          "project": "(sin proyecto)"
+        },
+        "count": 1
+      },
+      {
+        "_id": {
+          "department": "TI",
+          "jobPosition": "Soporte Tecnico",
+          "project": "IT"
+        },
+        "count": 5
+      }
+    ]
+  }
+}
