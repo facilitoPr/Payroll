@@ -26,6 +26,16 @@ export const EMPLOYEE_LOAN_VACATION_DAY_VALUE_MODE = [
   "NONE",
 ] as const;
 
+export const EMPLOYEE_LOAN_GUARANTEE_SOURCE = [
+  "VACATION_DAYS",
+  "CHRISTMAS_SALARY",
+] as const;
+
+export const EMPLOYEE_LOAN_GUARANTEE_COVERAGE_BASIS = [
+  "OUTSTANDING_BALANCE",
+  "OUTSTANDING_PRINCIPAL",
+] as const;
+
 export type LoanInterestRateType =
   (typeof EMPLOYEE_LOAN_INTEREST_RATE_TYPE)[number];
 
@@ -36,6 +46,34 @@ export type LoanAccountType = (typeof EMPLOYEE_LOAN_ACCOUNT_TYPES)[number];
 
 export type EmployeeLoanVacationDayValueMode =
   (typeof EMPLOYEE_LOAN_VACATION_DAY_VALUE_MODE)[number];
+
+export type EmployeeLoanGuaranteeSource =
+  (typeof EMPLOYEE_LOAN_GUARANTEE_SOURCE)[number];
+
+export type EmployeeLoanGuaranteeCoverageBasis =
+  (typeof EMPLOYEE_LOAN_GUARANTEE_COVERAGE_BASIS)[number];
+
+export const DEFAULT_LEGACY_EMPLOYEE_LOAN_GUARANTEE_SOURCE: EmployeeLoanGuaranteeSource =
+  "VACATION_DAYS";
+
+export const resolveEmployeeLoanGuaranteeSource = (
+  loanGuaranteeSource?: EmployeeLoanGuaranteeSource | null,
+): EmployeeLoanGuaranteeSource =>
+  loanGuaranteeSource || DEFAULT_LEGACY_EMPLOYEE_LOAN_GUARANTEE_SOURCE;
+
+const isValidMonthList = (value: number[]) => {
+  if (!Array.isArray(value)) return false;
+
+  const normalized = value.map((item) => Number(item));
+  const unique = new Set(normalized);
+
+  return (
+    unique.size === normalized.length &&
+    normalized.every(
+      (month) => Number.isInteger(month) && month >= 1 && month <= 12,
+    )
+  );
+};
 
 export interface IEmployeeLoanProductConfig extends Document {
   /** Nombre visible de la configuración o producto de préstamo. */
@@ -73,6 +111,30 @@ export interface IEmployeeLoanProductConfig extends Document {
 
   /** Indica si el capital se amortiza en cada cuota. */
   amortizePrincipal: boolean;
+
+  /** Fuente de garantia usada por nuevas solicitudes de este producto. */
+  loanGuaranteeSource?: EmployeeLoanGuaranteeSource;
+
+  /** Habilita reglas de garantia por salario de Navidad. */
+  christmasSalaryGuaranteeEnabled?: boolean;
+
+  /** Porcentaje maximo del saldo disponible de doble sueldo utilizable. */
+  maxChristmasSalaryGuaranteePercent?: number;
+
+  /** Monto minimo acumulado requerido para solicitar con doble sueldo. */
+  minimumChristmasSalaryAccumulatedAmount?: number;
+
+  /** Meses donde no se aceptan nuevas solicitudes. */
+  blockedLoanRequestMonths?: number[];
+
+  /** Meses donde no deben caer cuotas nuevas. */
+  blockedInstallmentMonths?: number[];
+
+  /** Exige saldar antes de meses protegidos. */
+  requireLoanSettlementBeforeProtectedMonths?: boolean;
+
+  /** Base que cubre la garantia monetaria. */
+  guaranteeCoverageBasis?: EmployeeLoanGuaranteeCoverageBasis;
 
   /** Cantidad mínima de días disponibles requeridos para solicitar. */
   minimumVacationDaysRequired: number;
@@ -213,6 +275,60 @@ const employeeLoanProductConfigSchema = new Schema<IEmployeeLoanProductConfig>(
     amortizePrincipal: {
       type: Boolean,
       default: true,
+    },
+
+    loanGuaranteeSource: {
+      type: String,
+      enum: EMPLOYEE_LOAN_GUARANTEE_SOURCE,
+      default: DEFAULT_LEGACY_EMPLOYEE_LOAN_GUARANTEE_SOURCE,
+      index: true,
+    },
+
+    christmasSalaryGuaranteeEnabled: {
+      type: Boolean,
+      default: false,
+    },
+
+    maxChristmasSalaryGuaranteePercent: {
+      type: Number,
+      default: 100,
+      min: 0,
+      max: 100,
+    },
+
+    minimumChristmasSalaryAccumulatedAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    blockedLoanRequestMonths: {
+      type: [Number],
+      default: [],
+      validate: {
+        validator: isValidMonthList,
+        message: "Los meses bloqueados para solicitudes deben estar entre 1 y 12 sin duplicados.",
+      },
+    },
+
+    blockedInstallmentMonths: {
+      type: [Number],
+      default: [],
+      validate: {
+        validator: isValidMonthList,
+        message: "Los meses bloqueados para cuotas deben estar entre 1 y 12 sin duplicados.",
+      },
+    },
+
+    requireLoanSettlementBeforeProtectedMonths: {
+      type: Boolean,
+      default: false,
+    },
+
+    guaranteeCoverageBasis: {
+      type: String,
+      enum: EMPLOYEE_LOAN_GUARANTEE_COVERAGE_BASIS,
+      default: "OUTSTANDING_BALANCE",
     },
 
     minimumVacationDaysRequired: {

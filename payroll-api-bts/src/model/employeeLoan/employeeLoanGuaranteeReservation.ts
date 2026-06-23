@@ -205,20 +205,6 @@ employeeLoanGuaranteeReservationSchema.index(
   },
 );
 
-employeeLoanGuaranteeReservationSchema.index(
-  {
-    loanRequest: 1,
-    source: 1,
-    status: 1,
-  },
-  {
-    unique: true,
-    partialFilterExpression: {
-      isDeleted: false,
-      status: "ACTIVE",
-    },
-  },
-);
 
 employeeLoanGuaranteeReservationSchema.index({
   employee: 1,

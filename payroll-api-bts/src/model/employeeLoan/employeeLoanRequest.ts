@@ -4,6 +4,8 @@ import {
   EMPLOYEE_LOAN_PAYMENT_FREQUENCY,
   LoanInterestRateType,
   LoanPaymentFrequency,
+  EmployeeLoanGuaranteeSource,
+  EmployeeLoanGuaranteeCoverageBasis,
 } from "./employeeLoanProductConfig";
 
 /**
@@ -222,8 +224,25 @@ export interface IEmployeeLoanRequest extends Document {
     estimatedGuaranteeAmount: number;
   };
 
-  /** Reserva de días de vacaciones asociada a esta solicitud. */
+  /** Reserva de dias de vacaciones asociada a esta solicitud. */
   vacationReservation?: Types.ObjectId | null;
+
+  /** Fuente de garantia congelada al aprobar o firmar el prestamo. */
+  guaranteeSourceSnapshot?: EmployeeLoanGuaranteeSource;
+
+  /** Snapshot del balance de doble sueldo usado para validar prestamos nuevos. */
+  christmasSalaryGuaranteeSnapshot?: {
+    year?: number;
+    accruedChristmasSalaryAmount?: number;
+    reservedGuaranteeAmount?: number;
+    availableUnreservedChristmasSalaryAmount?: number;
+    maxAllowedLoanAmount?: number;
+    maxChristmasSalaryGuaranteePercent?: number;
+    guaranteeCoverageBasis?: EmployeeLoanGuaranteeCoverageBasis;
+  };
+
+  /** Reserva monetaria futura para garantias basadas en doble sueldo. */
+  guaranteeReservation?: Types.ObjectId | null;
 
   /** Snapshot del proveedor/configuración usada para calcular el préstamo. */
   loanProviderSnapshot?: {
@@ -781,6 +800,64 @@ const employeeLoanRequestSchema = new Schema<IEmployeeLoanRequest>(
     vacationReservation: {
       type: Schema.Types.ObjectId,
       ref: "VacationDayReservation",
+      default: null,
+      index: true,
+    },
+
+    guaranteeSourceSnapshot: {
+      type: String,
+      enum: ["VACATION_DAYS", "CHRISTMAS_SALARY"],
+      default: undefined,
+      index: true,
+    },
+
+    christmasSalaryGuaranteeSnapshot: {
+      year: {
+        type: Number,
+        default: null,
+      },
+
+      accruedChristmasSalaryAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      reservedGuaranteeAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      availableUnreservedChristmasSalaryAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      maxAllowedLoanAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      maxChristmasSalaryGuaranteePercent: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 100,
+      },
+
+      guaranteeCoverageBasis: {
+        type: String,
+        enum: ["OUTSTANDING_BALANCE", "OUTSTANDING_PRINCIPAL"],
+        default: undefined,
+      },
+    },
+
+    guaranteeReservation: {
+      type: Schema.Types.ObjectId,
+      ref: "EmployeeLoanGuaranteeReservation",
       default: null,
       index: true,
     },
@@ -1434,6 +1511,16 @@ employeeLoanRequestSchema.index({
 employeeLoanRequestSchema.index({
   "terminationSettlement.termination": 1,
   status: 1,
+});
+
+employeeLoanRequestSchema.index({
+  guaranteeSourceSnapshot: 1,
+  status: 1,
+  isDeleted: 1,
+});
+
+employeeLoanRequestSchema.index({
+  guaranteeReservation: 1,
 });
 
 export default model<IEmployeeLoanRequest>(

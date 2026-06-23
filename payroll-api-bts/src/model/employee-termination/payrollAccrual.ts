@@ -40,10 +40,7 @@ export interface IPayrollAccrual extends mongoose.Document {
 
   type: PayrollAccrualType;
 
-  /**
-   * Operación del ledger. Los registros históricos que no tengan este campo
-   * deben interpretarse como legacy, no como movimientos nuevos.
-   */
+  /** Legacy CHRISTMAS_SALARY records without movementType are treated later as LEGACY_OPENING. */
   movementType?: PayrollAccrualMovementType | null;
 
   year: number;
