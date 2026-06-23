@@ -256,6 +256,9 @@ const includesAny = (value: string, words: string[]) => {
   return words.some((word) => value.includes(word));
 };
 
+const roundPayrollAmount = (value: number) =>
+  Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+
 export const inferPayrollEarningSource = (
   earning: Partial<IPayrollPaymentEarningLine>,
 ): IPayrollPaymentEarningLine["source"] => {
@@ -349,8 +352,9 @@ export const normalizePayrollEarningsForLabor = (
 
     const includeForChristmasSalary =
       earning.includeForChristmasSalary !== undefined
-        ? earning.includeForChristmasSalary
-        : isOrdinarySalary;
+        ? earning.includeForChristmasSalary === true
+        : isOrdinarySalary &&
+          ["BASE_SALARY", "HOURLY", "COMMISSION"].includes(source || "");
 
     return {
       nombre: String(earning.nombre || "Ingreso").trim(),
@@ -404,24 +408,32 @@ export const buildPayrollLaborBaseSnapshot = (
       terminationAverageAmountPeriod += amountPeriod;
     }
 
-    if (earning.includeForChristmasSalary !== false) {
+    if (earning.includeForChristmasSalary === true) {
       christmasSalaryAmountPeriod += amountPeriod;
     }
   }
+
+  const christmasSalaryEligibleOrdinaryEarningsAmountPeriod =
+    roundPayrollAmount(christmasSalaryAmountPeriod);
+  const christmasSalaryAccrualAmountPeriod = roundPayrollAmount(
+    christmasSalaryEligibleOrdinaryEarningsAmountPeriod / 12,
+  );
 
   return {
     ordinarySalaryPeriod,
     ordinarySalaryMonthly,
 
     terminationAverageAmountPeriod,
-    christmasSalaryAmountPeriod,
+    christmasSalaryAmountPeriod: christmasSalaryEligibleOrdinaryEarningsAmountPeriod,
+    christmasSalaryEligibleOrdinaryEarningsAmountPeriod,
+    christmasSalaryAccrualAmountPeriod,
 
     nonOrdinaryAmountPeriod,
 
     includedEarnings,
     excludedEarnings,
 
-    version: 1,
+    version: 2,
   };
 };
 

@@ -71,6 +71,7 @@ export interface IPayrollAccrual extends mongoose.Document {
   idempotencyKey?: string;
 
   ordinarySalaryBaseAmount?: number;
+  ordinarySalaryEarnedAmountDelta?: number;
   accruedAmountDelta?: number;
   paidAmountDelta?: number;
   appliedToTerminationAmountDelta?: number;
@@ -254,6 +255,11 @@ const payrollAccrualSchema = new Schema<IPayrollAccrual>(
       type: Number,
       default: 0,
       min: 0,
+    },
+
+    ordinarySalaryEarnedAmountDelta: {
+      type: Number,
+      default: 0,
     },
 
     accruedAmountDelta: {

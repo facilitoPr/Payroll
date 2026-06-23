@@ -98,6 +98,9 @@ export interface IPayrollLaborBaseSnapshot {
    */
   christmasSalaryAmountPeriod: number;
 
+  christmasSalaryEligibleOrdinaryEarningsAmountPeriod?: number;
+  christmasSalaryAccrualAmountPeriod?: number;
+
   /**
    * Ingresos no ordinarios o excluidos.
    */
@@ -308,7 +311,7 @@ const earningLineSchema = new Schema<IPayrollPaymentEarningLine>(
 
     isOrdinarySalary: { type: Boolean, default: true },
     includeForTerminationAverage: { type: Boolean, default: true },
-    includeForChristmasSalary: { type: Boolean, default: true },
+    includeForChristmasSalary: { type: Boolean, default: false },
   },
   { _id: false },
 );
@@ -320,6 +323,11 @@ const laborBaseSnapshotSchema = new Schema<IPayrollLaborBaseSnapshot>(
 
     terminationAverageAmountPeriod: { type: Number, default: 0 },
     christmasSalaryAmountPeriod: { type: Number, default: 0 },
+    christmasSalaryEligibleOrdinaryEarningsAmountPeriod: {
+      type: Number,
+      default: 0,
+    },
+    christmasSalaryAccrualAmountPeriod: { type: Number, default: 0 },
 
     nonOrdinaryAmountPeriod: { type: Number, default: 0 },
 
@@ -378,6 +386,8 @@ const snapshotSchema = new Schema<IPayrollPaymentSnapshot>(
         ordinarySalaryMonthly: 0,
         terminationAverageAmountPeriod: 0,
         christmasSalaryAmountPeriod: 0,
+        christmasSalaryEligibleOrdinaryEarningsAmountPeriod: 0,
+        christmasSalaryAccrualAmountPeriod: 0,
         nonOrdinaryAmountPeriod: 0,
         includedEarnings: [],
         excludedEarnings: [],

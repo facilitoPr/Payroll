@@ -4,6 +4,7 @@ export interface IPayrollEarningType extends mongoose.Document {
   code: string; // OVERTIME_35, COMMISSIONS, etc.
   name: string; // "Horas extras 35%", "Comisiones"
   description?: string;
+  includeForChristmasSalary?: boolean;
 
   isActive: boolean;
   isDeleted: boolean;
@@ -23,6 +24,7 @@ const payrollEarningTypeSchema = new Schema<IPayrollEarningType>(
     },
     name: { type: String, required: true, trim: true },
     description: { type: String },
+    includeForChristmasSalary: { type: Boolean, default: false, index: true },
 
     isActive: { type: Boolean, default: true },
     isDeleted: { type: Boolean, default: false },
