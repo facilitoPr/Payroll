@@ -16,7 +16,9 @@ import {
   getActiveEmployeeLoanProductConfigOrThrow,
   getEmployeeLoanPolicyOrThrow,
   loadEmployeeForLoan,
+  cancelChristmasSalaryGuaranteeReservationForLoan,
   releaseVacationLoanReservation,
+  reserveChristmasSalaryGuaranteeForLoan,
   reserveVacationDaysForLoan,
 } from "../../services/employeeLoan/employeeLoanRequest.service";
 import {
@@ -146,6 +148,7 @@ const populateLoanRequestQuery = (query: any) => {
     .populate("project", "name code")
     .populate("policy", "name code allowEmployeeLoanRequests")
     .populate("vacationReservation")
+    .populate("guaranteeReservation")
     .populate(
       "terminationSettlement.termination",
       "terminationType reason terminationDate status paidAt employeeSnapshot calculation.netTotal loanSnapshot.totalDeducted loanSnapshot.remainingOutstanding",
@@ -1394,8 +1397,18 @@ const cancelMyEmployeeLoanRequest = async (req: AuthRequest, res: Response) => {
       }
 
       const previousData = loanRequest.toObject();
+      const guaranteeSource = String(
+        loanRequest.guaranteeSourceSnapshot || "VACATION_DAYS",
+      ).toUpperCase();
 
-      if (loanRequest.vacationReservation) {
+      if (guaranteeSource === "CHRISTMAS_SALARY") {
+        await cancelChristmasSalaryGuaranteeReservationForLoan({
+          loanRequest,
+          authUserId,
+          session,
+          reason: "Solicitud cancelada por el empleado.",
+        });
+      } else if (loanRequest.vacationReservation) {
         const reservation = await VacationDayReservation.findById(
           loanRequest.vacationReservation,
         ).session(session);
@@ -1547,15 +1560,29 @@ const cancelEmployeeLoanRequestByAdmin = async (
       }
 
       const previousData = loanRequest.toObject();
+      const guaranteeSource = String(
+        loanRequest.guaranteeSourceSnapshot || "VACATION_DAYS",
+      ).toUpperCase();
 
-      await releaseVacationLoanReservation({
-        loanRequest,
-        authUserId,
-        session,
-        reason:
-          adminComment ||
-          `Garantía liberada por cancelación administrativa del préstamo ${loanRequest.requestNumber}.`,
-      });
+      if (guaranteeSource === "CHRISTMAS_SALARY") {
+        await cancelChristmasSalaryGuaranteeReservationForLoan({
+          loanRequest,
+          authUserId,
+          session,
+          reason:
+            adminComment ||
+            `Garantía de salario de Navidad cancelada por cancelación administrativa del préstamo ${loanRequest.requestNumber}.`,
+        });
+      } else {
+        await releaseVacationLoanReservation({
+          loanRequest,
+          authUserId,
+          session,
+          reason:
+            adminComment ||
+            `Garantía liberada por cancelación administrativa del préstamo ${loanRequest.requestNumber}.`,
+        });
+      }
 
       loanRequest.status = "CANCELLED";
       loanRequest.updatedBy = toObjectId(String(authUserId));
@@ -1917,8 +1944,24 @@ const signMyEmployeeLoanContract = async (req: AuthRequest, res: Response) => {
 
       await loanRequest.save({ session });
 
+      /**
+       * Punto único de reserva CHRISTMAS_SALARY:
+       * este endpoint firma el contrato y crea el préstamo en APPROVED.
+       * createEmployeeLoanRequest solo deja solicitudes SUBMITTED.
+       */
+      const christmasSalaryReservation =
+        await reserveChristmasSalaryGuaranteeForLoan({
+          loanRequest,
+          authUserId,
+          session,
+        });
+
+      const finalGuaranteeSource =
+        christmasSalaryReservation?.guaranteeSource ||
+        quoteContext.guaranteeSource;
+
       const vacationReservation =
-        quoteContext.guaranteeSource === "VACATION_DAYS"
+        finalGuaranteeSource === "VACATION_DAYS"
           ? await reserveVacationDaysForLoan({
               loanRequest,
               employee,
@@ -1931,24 +1974,33 @@ const signMyEmployeeLoanContract = async (req: AuthRequest, res: Response) => {
             })
           : null;
 
+      const finalLoanRequest =
+        christmasSalaryReservation?.loanRequest || loanRequest;
+
       await createLoanHistory({
-        loanRequest: loanRequest._id,
+        loanRequest: finalLoanRequest._id,
         action: "CONTRACT_SIGNED",
         fromStatus: null,
         toStatus: "APPROVED",
         comment: "Contrato firmado digitalmente por el empleado.",
         source: "EMPLOYEE_PORTAL",
         performedBy: authUserId,
-        newData: loanRequest.toObject(),
+        newData:
+          typeof finalLoanRequest.toObject === "function"
+            ? finalLoanRequest.toObject()
+            : finalLoanRequest,
         metadata: {
           vacationReservation: vacationReservation?._id || null,
+          guaranteeReservation:
+            christmasSalaryReservation?.reservation?._id || null,
           guaranteedDays: quoteContext.loanCalculation.guaranteedDays,
           requestedAmount,
           totalToPay: quoteContext.loanQuote.totalToPay,
           totalInterest: quoteContext.loanQuote.totalInterest,
           signatureName,
-          amountCalculatedFromVacationDays: quoteContext.guaranteeSource === "VACATION_DAYS",
-          guaranteeSource: quoteContext.guaranteeSource,
+          amountCalculatedFromVacationDays:
+            finalGuaranteeSource === "VACATION_DAYS",
+          guaranteeSource: finalGuaranteeSource,
           christmasSalaryGuarantee:
             quoteContext.christmasSalaryGuarantee || null,
           productConfigSource:
@@ -1957,7 +2009,7 @@ const signMyEmployeeLoanContract = async (req: AuthRequest, res: Response) => {
         session,
       });
 
-      savedLoanRequest = loanRequest;
+      savedLoanRequest = finalLoanRequest;
     });
 
     const populated = await populateLoanRequestQuery(

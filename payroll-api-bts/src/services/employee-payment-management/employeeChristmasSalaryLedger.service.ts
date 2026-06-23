@@ -399,7 +399,7 @@ export const registerChristmasSalaryMovement = async (
   }).session(session);
 
   if (existingMovement) {
-    const balance = await getEmployeeChristmasSalaryBalance({
+    const balance = await rebuildEmployeeChristmasSalaryBalance({
       company: existingMovement.company,
       employee: existingMovement.employee,
       year: existingMovement.year,
@@ -466,7 +466,7 @@ export const registerChristmasSalaryMovement = async (
       }).session(session);
 
       if (duplicateMovement) {
-        const balance = await getEmployeeChristmasSalaryBalance({
+        const balance = await rebuildEmployeeChristmasSalaryBalance({
           company: duplicateMovement.company,
           employee: duplicateMovement.employee,
           year: duplicateMovement.year,

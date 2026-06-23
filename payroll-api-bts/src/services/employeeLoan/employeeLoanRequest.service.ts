@@ -1,5 +1,11 @@
 import mongoose, { Types } from "mongoose";
-import EmployeeLoanProductConfig from "../../model/employeeLoan/employeeLoanProductConfig";
+import EmployeeLoanProductConfig, {
+  resolveEmployeeLoanGuaranteeSource,
+} from "../../model/employeeLoan/employeeLoanProductConfig";
+import EmployeeLoanRequest from "../../model/employeeLoan/employeeLoanRequest";
+import EmployeeLoanGuaranteeReservation from "../../model/employeeLoan/employeeLoanGuaranteeReservation";
+import EmployeeChristmasSalaryBalance from "../../model/employee-payment-management/employeeChristmasSalaryBalance";
+import PayrollAccrual from "../../model/employee-termination/payrollAccrual";
 import VacationDayReservation from "../../model/vacation/VacationDayReservation";
 import { recalculateVacationBalance } from "../../helper/employeeLoan/loanRequest/employeeLoanRequest.calculate";
 import User from "../../model/account/user";
@@ -17,6 +23,11 @@ import EmployeeVacationBalance from "../../model/vacation/EmployeeVacationBalanc
 import { getAvailableDaysForLoan } from "../../helper/employeeLoan/loanRequest/employeeLoanRequest.get";
 import { getEmployeeLoanPrincipalBootstrap, hasEmployeeLoanIntegrationConfiguration } from "../../helper/employeeLoan/loanIntegration/employeeLoanIntegration.principalApi";
 import Company from "../../model/company";
+import {
+  rebuildEmployeeChristmasSalaryBalance,
+  registerChristmasSalaryMovement,
+} from "../employee-payment-management/employeeChristmasSalaryLedger.service";
+import { round2 } from "../../helper/parse";
 
 export const getActiveLocalLoanProductConfig = async (
   session?: mongoose.ClientSession,
@@ -64,6 +75,442 @@ export const loadEmployeeForLoan = async ({
       },
     })
     .session(session || null);
+};
+
+const getActiveLoanInstallmentsForGuarantee = (loanRequest: any) => {
+  const schedule = Array.isArray(loanRequest?.amortizationSchedule)
+    ? loanRequest.amortizationSchedule
+    : [];
+
+  return schedule.filter((installment: any) =>
+    ["PENDING", "SKIPPED"].includes(
+      String(installment?.status || "").toUpperCase(),
+    ),
+  );
+};
+
+const calculateLoanOutstandingForGuarantee = (loanRequest: any) => {
+  const pendingInstallments = getActiveLoanInstallmentsForGuarantee(loanRequest);
+
+  const outstandingBalance = round2(
+    pendingInstallments.reduce(
+      (sum: number, installment: any) =>
+        sum + Number(installment?.paymentAmount || 0),
+      0,
+    ),
+  );
+
+  const outstandingPrincipal = round2(
+    pendingInstallments.reduce(
+      (sum: number, installment: any) =>
+        sum + Number(installment?.principalAmount || 0),
+      0,
+    ),
+  );
+
+  return {
+    outstandingBalance,
+    outstandingPrincipal,
+  };
+};
+
+const getChristmasSalaryProductConfigForLoan = async ({
+  loanRequest,
+  session,
+}: {
+  loanRequest: any;
+  session: mongoose.ClientSession;
+}) => {
+  const productConfigId = loanRequest?.loanProviderSnapshot?.productConfig;
+
+  if (productConfigId && Types.ObjectId.isValid(String(productConfigId))) {
+    const productConfig = await EmployeeLoanProductConfig.findOne({
+      _id: new Types.ObjectId(String(productConfigId)),
+      isDeleted: false,
+    }).session(session);
+
+    if (productConfig) return productConfig;
+  }
+
+  return getActiveEmployeeLoanProductConfigOrThrow(session);
+};
+
+export const reserveChristmasSalaryGuaranteeForLoan = async ({
+  loanRequest,
+  authUserId,
+  session,
+}: {
+  loanRequest: any;
+  authUserId: Types.ObjectId | string;
+  session: mongoose.ClientSession;
+}) => {
+  const loanRequestId = loanRequest?._id || loanRequest;
+
+  if (!loanRequestId || !Types.ObjectId.isValid(String(loanRequestId))) {
+    throw {
+      statusCode: 400,
+      mensaje: "La solicitud de préstamo no es válida para reservar garantía.",
+      message: "Invalid employee loan request for Christmas salary guarantee.",
+    };
+  }
+
+  const performedBy =
+    authUserId instanceof Types.ObjectId
+      ? authUserId
+      : new Types.ObjectId(String(authUserId));
+
+  const loan = await EmployeeLoanRequest.findOne({
+    _id: new Types.ObjectId(String(loanRequestId)),
+    isDeleted: false,
+  }).session(session);
+
+  if (!loan) {
+    throw {
+      statusCode: 404,
+      mensaje: "Solicitud de préstamo no encontrada.",
+      message: "Employee loan request not found.",
+    };
+  }
+
+  const productConfig = await getChristmasSalaryProductConfigForLoan({
+    loanRequest: loan,
+    session,
+  });
+
+  const guaranteeSource = resolveEmployeeLoanGuaranteeSource(productConfig);
+
+  if (guaranteeSource !== "CHRISTMAS_SALARY") {
+    loan.guaranteeSourceSnapshot = guaranteeSource;
+    await loan.save({ session });
+
+    return {
+      reserved: false,
+      skipped: true,
+      guaranteeSource,
+      reason: "NOT_CHRISTMAS_SALARY_GUARANTEE",
+      loanRequest: loan,
+      reservation: null,
+      movement: null,
+      balance: null,
+    };
+  }
+
+  const existingReservation = await EmployeeLoanGuaranteeReservation.findOne({
+    loanRequest: loan._id,
+    source: "CHRISTMAS_SALARY",
+    isDeleted: false,
+  }).session(session);
+
+  const idempotencyKey = `CHRISTMAS_GUARANTEE_RESERVED:${String(loan._id)}`;
+  const existingMovement = await PayrollAccrual.findOne({
+    type: "CHRISTMAS_SALARY",
+    movementType: "CHRISTMAS_GUARANTEE_RESERVED",
+    idempotencyKey,
+    isDeleted: false,
+  }).session(session);
+
+  if (existingReservation && existingMovement) {
+    const balance = await rebuildEmployeeChristmasSalaryBalance({
+      company: existingReservation.company,
+      employee: existingReservation.employee,
+      year: existingReservation.year,
+      session,
+    });
+
+    loan.guaranteeSourceSnapshot = "CHRISTMAS_SALARY";
+    loan.guaranteeReservation = existingReservation._id;
+    await loan.save({ session });
+
+    return {
+      reserved: false,
+      skipped: false,
+      guaranteeSource,
+      idempotent: true,
+      loanRequest: loan,
+      reservation: existingReservation,
+      movement: existingMovement,
+      balance,
+    };
+  }
+
+  const year = Number(
+    loan.christmasSalaryGuaranteeSnapshot?.year || new Date().getFullYear(),
+  );
+
+  const balanceBefore = await EmployeeChristmasSalaryBalance.findOne({
+    company: loan.company,
+    employee: loan.employee,
+    year,
+    isDeleted: false,
+  }).session(session);
+
+  if (!balanceBefore) {
+    throw {
+      statusCode: 400,
+      mensaje: "No existe balance de salario de Navidad para reservar garantía.",
+      message: "Christmas salary balance not found.",
+    };
+  }
+
+  const accruedChristmasSalaryAmount = round2(
+    Number(balanceBefore.accruedChristmasSalaryAmount || 0),
+  );
+  const reservedGuaranteeAmountBefore = round2(
+    Number(balanceBefore.reservedGuaranteeAmount || 0),
+  );
+  const availableUnreservedChristmasSalaryAmountBefore = round2(
+    Math.max(
+      0,
+      Number(balanceBefore.accruedChristmasSalaryAmount || 0) -
+        Number(balanceBefore.paidChristmasSalaryAmount || 0) -
+        Number(balanceBefore.appliedToTerminationAmount || 0) -
+        Number(balanceBefore.reservedGuaranteeAmount || 0),
+    ),
+  );
+
+  const maxChristmasSalaryGuaranteePercent = Math.min(
+    100,
+    Math.max(0, Number(productConfig.maxChristmasSalaryGuaranteePercent ?? 100)),
+  );
+  const maxByProductPolicy = round2(
+    availableUnreservedChristmasSalaryAmountBefore *
+      (maxChristmasSalaryGuaranteePercent / 100),
+  );
+  const productMaxAmount = Number(productConfig.maxLoanAmount || 0);
+  const productLimit =
+    productMaxAmount > 0 ? productMaxAmount : Number.POSITIVE_INFINITY;
+  const maxAllowedLoanAmount = round2(
+    Math.min(maxByProductPolicy, productLimit),
+  );
+  const guaranteeCoverageBasis =
+    productConfig.guaranteeCoverageBasis || "OUTSTANDING_BALANCE";
+  const outstanding = calculateLoanOutstandingForGuarantee(loan);
+  const reserveAmount = round2(
+    guaranteeCoverageBasis === "OUTSTANDING_PRINCIPAL"
+      ? outstanding.outstandingPrincipal
+      : outstanding.outstandingBalance,
+  );
+
+  if (reserveAmount <= 0) {
+    throw {
+      statusCode: 400,
+      mensaje: "El préstamo no tiene saldo pendiente para reservar garantía.",
+      message: "Loan has no outstanding amount to reserve.",
+    };
+  }
+
+  if (reserveAmount > maxAllowedLoanAmount) {
+    throw {
+      statusCode: 400,
+      mensaje:
+        "El saldo pendiente del préstamo supera el máximo garantizable con salario de Navidad.",
+      message: "Outstanding loan amount exceeds Christmas salary guarantee limit.",
+      data: { reserveAmount, maxAllowedLoanAmount, guaranteeCoverageBasis },
+    };
+  }
+
+  if (reserveAmount > availableUnreservedChristmasSalaryAmountBefore) {
+    throw {
+      statusCode: 400,
+      mensaje: "No hay suficiente salario de Navidad disponible para garantizar este préstamo.",
+      message: "Not enough unreserved Christmas salary available.",
+      data: {
+        reserveAmount,
+        availableUnreservedChristmasSalaryAmount:
+          availableUnreservedChristmasSalaryAmountBefore,
+      },
+    };
+  }
+
+  let reservation = existingReservation;
+
+  if (!reservation) {
+    try {
+      const reservationDocs = await EmployeeLoanGuaranteeReservation.create(
+        [
+          {
+            company: loan.company,
+            employee: loan.employee,
+            loanRequest: loan._id,
+            source: "CHRISTMAS_SALARY",
+            year,
+            reservedAmount: reserveAmount,
+            remainingReservedAmount: reserveAmount,
+            status: "ACTIVE",
+            reason: `Garantía de salario de Navidad para préstamo ${loan.requestNumber}`,
+            reservedAt: new Date(),
+            createdBy: performedBy,
+            updatedBy: performedBy,
+            isActive: true,
+            isDeleted: false,
+            metadata: {
+              guaranteeCoverageBasis,
+              outstandingBalance: outstanding.outstandingBalance,
+              outstandingPrincipal: outstanding.outstandingPrincipal,
+            },
+          },
+        ],
+        { session },
+      );
+
+      reservation = reservationDocs[0];
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        reservation = await EmployeeLoanGuaranteeReservation.findOne({
+          loanRequest: loan._id,
+          source: "CHRISTMAS_SALARY",
+          isDeleted: false,
+        }).session(session);
+      }
+
+      if (!reservation) throw error;
+    }
+  }
+
+  if (String(reservation.status || "").toUpperCase() !== "ACTIVE") {
+    throw {
+      statusCode: 400,
+      mensaje: "La reserva existente de garantía no está activa.",
+      message: "Existing Christmas salary guarantee reservation is not active.",
+    };
+  }
+
+  const movementAfterReservation = await PayrollAccrual.findOne({
+    type: "CHRISTMAS_SALARY",
+    movementType: "CHRISTMAS_GUARANTEE_RESERVED",
+    idempotencyKey,
+    isDeleted: false,
+  }).session(session);
+
+  if (movementAfterReservation) {
+    const balance = await rebuildEmployeeChristmasSalaryBalance({
+      company: reservation.company,
+      employee: reservation.employee,
+      year: reservation.year,
+      session,
+    });
+
+    loan.guaranteeSourceSnapshot = "CHRISTMAS_SALARY";
+    loan.guaranteeReservation = reservation._id;
+    await loan.save({ session });
+
+    return {
+      reserved: false,
+      skipped: false,
+      guaranteeSource,
+      idempotent: true,
+      loanRequest: loan,
+      reservation,
+      movement: movementAfterReservation,
+      balance,
+    };
+  }
+
+  const availableAfter = round2(
+    availableUnreservedChristmasSalaryAmountBefore - reserveAmount,
+  );
+  const reservedAfter = round2(reservedGuaranteeAmountBefore + reserveAmount);
+
+  const conditionalBalance = await EmployeeChristmasSalaryBalance.findOneAndUpdate(
+    {
+      _id: balanceBefore._id,
+      isDeleted: false,
+      availableUnreservedChristmasSalaryAmount: { $gte: reserveAmount },
+    },
+    {
+      $inc: {
+        reservedGuaranteeAmount: reserveAmount,
+        availableUnreservedChristmasSalaryAmount: -reserveAmount,
+      },
+      $set: {
+        lastRebuiltAt: new Date(),
+      },
+    },
+    {
+      new: true,
+      session,
+    },
+  );
+
+  if (!conditionalBalance) {
+    throw {
+      statusCode: 409,
+      mensaje:
+        "El salario de Navidad disponible cambió mientras se reservaba la garantía. Intenta nuevamente.",
+      message: "Christmas salary available balance changed during reservation.",
+    };
+  }
+
+  const movementResult = await registerChristmasSalaryMovement({
+    company: loan.company,
+    employee: loan.employee,
+    year,
+    month: new Date().getMonth() + 1,
+    periodStart: new Date(year, 0, 1),
+    periodEnd: new Date(year, 11, 31, 23, 59, 59, 999),
+    movementType: "CHRISTMAS_GUARANTEE_RESERVED",
+    idempotencyKey,
+    loanRequest: loan._id,
+    guaranteeReservation: reservation._id,
+    impact: {
+      ordinarySalaryEarnedAmount: 0,
+      accruedChristmasSalaryAmount: 0,
+      paidChristmasSalaryAmount: 0,
+      appliedToTerminationAmount: 0,
+      reservedGuaranteeAmount: reserveAmount,
+    },
+    source: "SYSTEM",
+    effectiveAt: new Date(),
+    notes: "Reserva de garantía de salario de Navidad al firmar préstamo.",
+    metadata: {
+      guaranteeCoverageBasis,
+      reserveAmount,
+      outstandingBalance: outstanding.outstandingBalance,
+      outstandingPrincipal: outstanding.outstandingPrincipal,
+    },
+    createdBy: performedBy,
+    updatedBy: performedBy,
+    session,
+  });
+
+  const balanceAfter = movementResult.balance;
+
+  loan.guaranteeSourceSnapshot = "CHRISTMAS_SALARY";
+  loan.guaranteeReservation = reservation._id;
+  loan.christmasSalaryGuaranteeSnapshot = {
+    year,
+    accruedChristmasSalaryAmount,
+    reserveAmount,
+    reservedGuaranteeAmount: round2(
+      balanceAfter?.reservedGuaranteeAmount || reservedAfter,
+    ),
+    reservedGuaranteeAmountBefore,
+    reservedGuaranteeAmountAfter: round2(
+      balanceAfter?.reservedGuaranteeAmount || reservedAfter,
+    ),
+    availableUnreservedChristmasSalaryAmount: round2(
+      balanceAfter?.availableUnreservedChristmasSalaryAmount || availableAfter,
+    ),
+    availableUnreservedChristmasSalaryAmountBefore,
+    availableUnreservedChristmasSalaryAmountAfter: round2(
+      balanceAfter?.availableUnreservedChristmasSalaryAmount || availableAfter,
+    ),
+    maxAllowedLoanAmount,
+    maxChristmasSalaryGuaranteePercent,
+    guaranteeCoverageBasis,
+  };
+
+  await loan.save({ session });
+
+  return {
+    reserved: movementResult.created,
+    guaranteeSource,
+    idempotent: !movementResult.created,
+    loanRequest: loan,
+    reservation,
+    movement: movementResult.movement,
+    balance: balanceAfter,
+  };
 };
 
 export const reserveVacationDaysForLoan = async ({
@@ -878,5 +1325,137 @@ export const releaseVacationLoanReservation = async ({
     reservation: vacationReservation,
     releasedDays,
     balance: vacationBalance,
+  };
+};
+
+export const cancelChristmasSalaryGuaranteeReservationForLoan = async ({
+  loanRequest,
+  authUserId,
+  session,
+  reason,
+}: {
+  loanRequest: any;
+  authUserId: Types.ObjectId | string;
+  session: mongoose.ClientSession;
+  reason?: string;
+}) => {
+  const loanRequestId = loanRequest?._id || loanRequest;
+
+  if (!loanRequestId || !Types.ObjectId.isValid(String(loanRequestId))) {
+    throw {
+      statusCode: 400,
+      mensaje:
+        "La solicitud de préstamo no es válida para cancelar la garantía.",
+      message:
+        "Invalid employee loan request for cancelling Christmas guarantee.",
+    };
+  }
+
+  const performedBy =
+    authUserId instanceof Types.ObjectId
+      ? authUserId
+      : new Types.ObjectId(String(authUserId));
+
+  const reservation = await EmployeeLoanGuaranteeReservation.findOne({
+    loanRequest: new Types.ObjectId(String(loanRequestId)),
+    source: "CHRISTMAS_SALARY",
+    status: "ACTIVE",
+    isActive: true,
+    isDeleted: false,
+  }).session(session);
+
+  if (!reservation) {
+    const previousReservation = await EmployeeLoanGuaranteeReservation.findOne({
+      loanRequest: new Types.ObjectId(String(loanRequestId)),
+      source: "CHRISTMAS_SALARY",
+      isDeleted: false,
+    }).session(session);
+
+    return {
+      released: false,
+      alreadyReleased: Boolean(previousReservation),
+      reservation: previousReservation || null,
+      releasedAmount: 0,
+      balance: null,
+    };
+  }
+
+  const remainingReservedAmount = round2(
+    Number(reservation.remainingReservedAmount || 0),
+  );
+
+  const releaseReason =
+    String(reason || "").trim() ||
+    `Garantía de salario de Navidad cancelada por préstamo ${loanRequestId}.`;
+
+  let balance = null;
+  let movement = null;
+
+  if (remainingReservedAmount > 0) {
+    const movementResult = await registerChristmasSalaryMovement({
+      company: reservation.company,
+      employee: reservation.employee,
+      year: reservation.year,
+      month: new Date().getMonth() + 1,
+      periodStart: new Date(reservation.year, 0, 1),
+      periodEnd: new Date(reservation.year, 11, 31, 23, 59, 59, 999),
+      movementType: "CHRISTMAS_GUARANTEE_RELEASED",
+      idempotencyKey: `CHRISTMAS_GUARANTEE_RELEASED:${String(
+        loanRequestId,
+      )}:CANCELLED`,
+      loanRequest: loanRequestId,
+      guaranteeReservation: reservation._id,
+      impact: {
+        ordinarySalaryEarnedAmount: 0,
+        accruedChristmasSalaryAmount: 0,
+        paidChristmasSalaryAmount: 0,
+        appliedToTerminationAmount: 0,
+        reservedGuaranteeAmount: -remainingReservedAmount,
+      },
+      source: "SYSTEM",
+      effectiveAt: new Date(),
+      notes: releaseReason,
+      metadata: {
+        cancellationReason: releaseReason,
+        previousRemainingReservedAmount: remainingReservedAmount,
+      },
+      createdBy: performedBy,
+      updatedBy: performedBy,
+      session,
+    });
+
+    movement = movementResult.movement;
+    balance = movementResult.balance;
+  } else {
+    balance = await rebuildEmployeeChristmasSalaryBalance({
+      company: reservation.company,
+      employee: reservation.employee,
+      year: reservation.year,
+      session,
+    });
+  }
+
+  reservation.remainingReservedAmount = 0;
+  reservation.status = "CANCELLED";
+  reservation.cancelledAt = new Date();
+  reservation.cancelledBy = performedBy;
+  reservation.updatedBy = performedBy;
+  reservation.isActive = false;
+  reservation.metadata = {
+    ...(reservation.metadata || {}),
+    cancellationReason: releaseReason,
+    cancelledLoanRequest: String(loanRequestId),
+    releasedAmount: remainingReservedAmount,
+  };
+
+  await reservation.save({ session });
+
+  return {
+    released: remainingReservedAmount > 0,
+    alreadyReleased: false,
+    reservation,
+    movement,
+    releasedAmount: remainingReservedAmount,
+    balance,
   };
 };

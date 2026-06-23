@@ -234,8 +234,13 @@ export interface IEmployeeLoanRequest extends Document {
   christmasSalaryGuaranteeSnapshot?: {
     year?: number;
     accruedChristmasSalaryAmount?: number;
+    reserveAmount?: number;
     reservedGuaranteeAmount?: number;
+    reservedGuaranteeAmountBefore?: number;
+    reservedGuaranteeAmountAfter?: number;
     availableUnreservedChristmasSalaryAmount?: number;
+    availableUnreservedChristmasSalaryAmountBefore?: number;
+    availableUnreservedChristmasSalaryAmountAfter?: number;
     maxAllowedLoanAmount?: number;
     maxChristmasSalaryGuaranteePercent?: number;
     guaranteeCoverageBasis?: EmployeeLoanGuaranteeCoverageBasis;
@@ -823,13 +828,43 @@ const employeeLoanRequestSchema = new Schema<IEmployeeLoanRequest>(
         min: 0,
       },
 
+      reserveAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
       reservedGuaranteeAmount: {
         type: Number,
         default: 0,
         min: 0,
       },
 
+      reservedGuaranteeAmountBefore: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      reservedGuaranteeAmountAfter: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
       availableUnreservedChristmasSalaryAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      availableUnreservedChristmasSalaryAmountBefore: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      availableUnreservedChristmasSalaryAmountAfter: {
         type: Number,
         default: 0,
         min: 0,
