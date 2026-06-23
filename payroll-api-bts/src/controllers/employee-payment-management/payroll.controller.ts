@@ -64,6 +64,10 @@ import {
   finalizeEmployeeLoanDeductionsAfterBankAuthorization,
   markEmployeeLoanDeductionsAsPaidFromSnapshot,
 } from "../../helper/payroll/payrolls.employeeLoanDeduction";
+import {
+  accrueChristmasSalaryForFinanciallyConfirmedPayrollRun,
+  reverseChristmasSalaryAccrualsForPayrollRun,
+} from "../../services/employee-payment-management/employeeChristmasSalaryLedger.service";
 
 moment.locale("es-do");
 
@@ -2625,6 +2629,7 @@ const updatePayrollRunAdmin = async (req: any, res: Response) => {
 
     let updatedRun: any = null;
     let loanFinalizeResult: any = null;
+    let christmasSalaryAccrualResult: any = null;
     let shouldSendPayslipEmails = false;
 
     await session.withTransaction(async () => {
@@ -2849,6 +2854,16 @@ const updatePayrollRunAdmin = async (req: any, res: Response) => {
             run.bankDepositedBy = run.bankDepositedBy || actorId;
           }
 
+          if (shouldFinalizeLoanDeductions) {
+            christmasSalaryAccrualResult =
+              await accrueChristmasSalaryForFinanciallyConfirmedPayrollRun({
+                payrollRun: run,
+                actorId,
+                effectiveAt: paidAt,
+                session,
+              });
+          }
+
           if (!previousBankAuthorizationNumber) {
             run.notes = appendRunNote({
               currentNotes: run.notes,
@@ -2948,6 +2963,7 @@ const updatePayrollRunAdmin = async (req: any, res: Response) => {
       mensaje: "Cierre de nómina actualizado correctamente.",
       run: updatedRun,
       loanFinalizeResult,
+      christmasSalaryAccrualResult,
       emailDispatchQueued: shouldSendPayslipEmails,
     });
   } catch (error: any) {
@@ -2981,6 +2997,7 @@ const updatePayrollRunAdmin = async (req: any, res: Response) => {
 
 const softDeletePayrollRun = async (req: any, res: Response) => {
   try {
+    let christmasSalaryReversalResult: any = null;
     const { id } = req.params;
     const { note = "" } = req.body as any;
 
@@ -3022,6 +3039,24 @@ const softDeletePayrollRun = async (req: any, res: Response) => {
       req.user?._id && isValidObjectId(String(req.user._id))
         ? req.user._id
         : null;
+
+    const wasFinanciallyConfirmed = Boolean(
+      run.status === "CLOSED" &&
+        run.isDeleted !== true &&
+        run.isActive !== false &&
+        run.bankAuthorizationNumber &&
+        String(run.bankAuthorizationNumber || "").trim() &&
+        run.bankDepositedAt,
+    );
+
+    if (wasFinanciallyConfirmed) {
+      christmasSalaryReversalResult =
+        await reverseChristmasSalaryAccrualsForPayrollRun({
+          payrollRun: run,
+          actorId,
+          effectiveAt: new Date(),
+        });
+    }
 
     run.status = "CANCELLED";
     run.isActive = false;
@@ -3071,6 +3106,7 @@ const softDeletePayrollRun = async (req: any, res: Response) => {
       ok: true,
       mensaje: "Cierre de nómina ocultado correctamente.",
       run: updatedRun,
+      christmasSalaryReversalResult,
     });
   } catch (error: any) {
     console.error("[softDeletePayrollRun]", error);
@@ -3653,6 +3689,13 @@ const setRunBankAuthorization = async (req: any, res: Response) => {
 
     await run.save();
 
+    const christmasSalaryAccrualResult =
+      await accrueChristmasSalaryForFinanciallyConfirmedPayrollRun({
+        payrollRun: run,
+        actorId: req.user?._id || null,
+        effectiveAt: run.bankDepositedAt || new Date(),
+      });
+
     await markTerminationLoanPendingPaymentsPaidForRun({
       payrollRunId: id,
       paidAt: run.bankDepositedAt || new Date(),
@@ -3670,6 +3713,7 @@ const setRunBankAuthorization = async (req: any, res: Response) => {
       ok: true,
       mensaje: "Autorización bancaria guardada",
       run,
+      christmasSalaryAccrualResult,
     });
   } catch (error) {
     console.error("setRunBankAuthorization error:", error);

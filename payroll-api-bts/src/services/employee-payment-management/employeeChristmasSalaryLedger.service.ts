@@ -5,6 +5,7 @@ import PayrollAccrual, {
   PayrollAccrualStatus,
 } from "../../model/employee-termination/payrollAccrual";
 import EmployeeChristmasSalaryBalance from "../../model/employee-payment-management/employeeChristmasSalaryBalance";
+import PayrollPayment from "../../model/employee-payment-management/payrollPayment";
 
 export type ChristmasSalaryMovementImpact = {
   ordinarySalaryEarnedAmount: number;
@@ -63,6 +64,105 @@ const toObjectId = (value: Types.ObjectId | string | null | undefined) => {
 
 const round2 = (value: number) =>
   Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+
+const toDateOrNull = (value: any) => {
+  if (!value) return null;
+
+  const date = value instanceof Date ? value : new Date(value);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const sameObjectId = (left: any, right: any) => {
+  const leftId = left?._id || left;
+  const rightId = right?._id || right;
+
+  return Boolean(leftId && rightId && String(leftId) === String(rightId));
+};
+
+const getPayrollPaymentPeriodDates = (payrollRun: any, payrollPayment: any) => {
+  const periodStart =
+    toDateOrNull(payrollPayment?.periodStart) ||
+    toDateOrNull(payrollPayment?.snapshot?.period?.start) ||
+    toDateOrNull(payrollRun?.periodStart) ||
+    toDateOrNull(payrollRun?.payDate) ||
+    new Date();
+
+  const periodEnd =
+    toDateOrNull(payrollPayment?.periodEnd) ||
+    toDateOrNull(payrollPayment?.snapshot?.period?.end) ||
+    toDateOrNull(payrollRun?.periodEnd) ||
+    toDateOrNull(payrollRun?.payDate) ||
+    periodStart;
+
+  return {
+    periodStart,
+    periodEnd,
+  };
+};
+
+const getChristmasSalaryAccrualYear = (payrollRun: any, payrollPayment: any) => {
+  const rawYear = Number(payrollPayment?.year || 0);
+
+  if (Number.isInteger(rawYear) && rawYear >= 2000 && rawYear <= 2100) {
+    return rawYear;
+  }
+
+  const { periodEnd } = getPayrollPaymentPeriodDates(payrollRun, payrollPayment);
+
+  return periodEnd.getFullYear();
+};
+
+const getChristmasSalaryAccrualMonth = (
+  payrollRun: any,
+  payrollPayment: any,
+) => {
+  const rawMonth = Number(payrollPayment?.month || 0);
+
+  if (Number.isInteger(rawMonth) && rawMonth >= 1 && rawMonth <= 12) {
+    return rawMonth;
+  }
+
+  const { periodEnd } = getPayrollPaymentPeriodDates(payrollRun, payrollPayment);
+
+  return periodEnd.getMonth() + 1;
+};
+
+export const isPayrollFinanciallyConfirmed = (
+  payrollRun: any,
+  payrollPayment: any,
+) => {
+  const cleanAuthorization = String(
+    payrollRun?.bankAuthorizationNumber || "",
+  ).trim();
+
+  const depositedAt = toDateOrNull(payrollRun?.bankDepositedAt);
+
+  const runIsConfirmed = Boolean(
+    payrollRun &&
+      String(payrollRun.status || "").toUpperCase() === "CLOSED" &&
+      payrollRun.isDeleted !== true &&
+      payrollRun.isActive !== false &&
+      cleanAuthorization &&
+      depositedAt,
+  );
+
+  if (!runIsConfirmed) return false;
+
+  const paymentIsValid = Boolean(
+    payrollPayment &&
+      payrollPayment.isDeleted !== true &&
+      payrollPayment.isActive !== false,
+  );
+
+  if (!paymentIsValid) return false;
+
+  if (payrollPayment?.payrollRun && payrollRun?._id) {
+    return sameObjectId(payrollPayment.payrollRun, payrollRun._id);
+  }
+
+  return true;
+};
 
 const cleanImpact = (
   impact?: Partial<ChristmasSalaryMovementImpact>,
@@ -395,5 +495,238 @@ export const registerChristmasSalaryMovement = async (
     movement,
     balance,
     created: true,
+  };
+};
+type PayrollRunChristmasSalaryAccrualInput = {
+  payrollRun: any;
+  actorId?: Types.ObjectId | string | null;
+  effectiveAt?: Date | null;
+  session?: ClientSession | null;
+};
+
+export const registerPayrollPaymentChristmasSalaryAccrual = async ({
+  payrollRun,
+  payrollPayment,
+  actorId,
+  effectiveAt,
+  session,
+}: PayrollRunChristmasSalaryAccrualInput & { payrollPayment: any }) => {
+  if (!isPayrollFinanciallyConfirmed(payrollRun, payrollPayment)) {
+    return {
+      created: false,
+      skipped: true,
+      reason: "PAYROLL_NOT_FINANCIALLY_CONFIRMED",
+    };
+  }
+
+  const laborBase = payrollPayment?.snapshot?.laborBase || {};
+  const ordinarySalaryEarnedAmountDelta = round2(
+    laborBase.christmasSalaryEligibleOrdinaryEarningsAmountPeriod || 0,
+  );
+  const accruedAmountDelta = round2(
+    laborBase.christmasSalaryAccrualAmountPeriod || 0,
+  );
+
+  if (ordinarySalaryEarnedAmountDelta <= 0 && accruedAmountDelta <= 0) {
+    return {
+      created: false,
+      skipped: true,
+      reason: "NO_CHRISTMAS_SALARY_ACCRUAL_AMOUNT",
+    };
+  }
+
+  const company = payrollPayment.company || payrollRun.company;
+  const employee = payrollPayment.user;
+  const year = getChristmasSalaryAccrualYear(payrollRun, payrollPayment);
+  const month = getChristmasSalaryAccrualMonth(payrollRun, payrollPayment);
+  const { periodStart, periodEnd } = getPayrollPaymentPeriodDates(
+    payrollRun,
+    payrollPayment,
+  );
+
+  return registerChristmasSalaryMovement({
+    company,
+    employee,
+    year,
+    month,
+    periodStart,
+    periodEnd,
+    payrollRun: payrollRun._id,
+    payrollPayment: payrollPayment._id,
+    movementType: "CHRISTMAS_ACCRUAL",
+    idempotencyKey: `CHRISTMAS_ACCRUAL:${String(payrollPayment._id)}`,
+    impact: {
+      ordinarySalaryEarnedAmount: ordinarySalaryEarnedAmountDelta,
+      accruedChristmasSalaryAmount: accruedAmountDelta,
+      paidChristmasSalaryAmount: 0,
+      appliedToTerminationAmount: 0,
+      reservedGuaranteeAmount: 0,
+    },
+    source: "PAYROLL_RUN",
+    effectiveAt: effectiveAt || payrollRun.bankDepositedAt || new Date(),
+    notes:
+      "Acumulacion de doble sueldo generada por confirmacion financiera de nomina.",
+    metadata: {
+      bankAuthorizationNumber: payrollRun.bankAuthorizationNumber || "",
+      ordinarySalaryEarnedAmountDelta,
+      accruedAmountDelta,
+    },
+    createdBy: actorId,
+    updatedBy: actorId,
+    session,
+  });
+};
+
+export const accrueChristmasSalaryForFinanciallyConfirmedPayrollRun = async ({
+  payrollRun,
+  actorId,
+  effectiveAt,
+  session,
+}: PayrollRunChristmasSalaryAccrualInput) => {
+  const payments = await PayrollPayment.find({
+    payrollRun: payrollRun._id,
+    isDeleted: false,
+    isActive: true,
+  })
+    .select(
+      "_id company payrollRun user periodStart periodEnd payDate year month snapshot isActive isDeleted",
+    )
+    .session(session || null)
+    .lean();
+
+  let createdCount = 0;
+  let existingCount = 0;
+  let skippedCount = 0;
+
+  for (const payrollPayment of payments) {
+    const result = await registerPayrollPaymentChristmasSalaryAccrual({
+      payrollRun,
+      payrollPayment,
+      actorId,
+      effectiveAt,
+      session,
+    });
+
+    if ((result as any).created) createdCount++;
+    else if ((result as any).skipped) skippedCount++;
+    else existingCount++;
+  }
+
+  return {
+    createdCount,
+    existingCount,
+    skippedCount,
+    processedCount: payments.length,
+  };
+};
+
+export const reversePayrollPaymentChristmasSalaryAccrual = async ({
+  payrollRun,
+  payrollPayment,
+  actorId,
+  effectiveAt,
+  session,
+}: PayrollRunChristmasSalaryAccrualInput & { payrollPayment: any }) => {
+  if (!isPayrollFinanciallyConfirmed(payrollRun, payrollPayment)) {
+    return {
+      created: false,
+      skipped: true,
+      reason: "PAYROLL_NOT_FINANCIALLY_CONFIRMED",
+    };
+  }
+
+  const accrualMovement = await PayrollAccrual.findOne({
+    type: "CHRISTMAS_SALARY",
+    movementType: "CHRISTMAS_ACCRUAL",
+    payrollPayment: payrollPayment._id,
+    idempotencyKey: `CHRISTMAS_ACCRUAL:${String(payrollPayment._id)}`,
+    isDeleted: false,
+  }).session(session || null);
+
+  if (!accrualMovement) {
+    return { created: false, skipped: true, reason: "ORIGINAL_ACCRUAL_NOT_FOUND" };
+  }
+
+  const originalImpact = getMovementImpact(accrualMovement);
+  const { periodStart, periodEnd } = getPayrollPaymentPeriodDates(
+    payrollRun,
+    payrollPayment,
+  );
+
+  return registerChristmasSalaryMovement({
+    company: accrualMovement.company,
+    employee: accrualMovement.employee,
+    year: accrualMovement.year,
+    month:
+      accrualMovement.month ||
+      getChristmasSalaryAccrualMonth(payrollRun, payrollPayment),
+    periodStart,
+    periodEnd,
+    payrollRun: payrollRun._id,
+    payrollPayment: payrollPayment._id,
+    reversesAccrual: accrualMovement._id,
+    movementType: "CHRISTMAS_ACCRUAL_REVERSAL",
+    idempotencyKey: `CHRISTMAS_ACCRUAL_REVERSAL:${String(payrollPayment._id)}`,
+    impact: {
+      ordinarySalaryEarnedAmount: -originalImpact.ordinarySalaryEarnedAmount,
+      accruedChristmasSalaryAmount: -originalImpact.accruedChristmasSalaryAmount,
+      paidChristmasSalaryAmount: 0,
+      appliedToTerminationAmount: 0,
+      reservedGuaranteeAmount: 0,
+    },
+    source: "PAYROLL_RUN",
+    effectiveAt: effectiveAt || new Date(),
+    notes:
+      "Reverso de acumulacion de doble sueldo por anulacion formal de nomina confirmada financieramente.",
+    metadata: {
+      bankAuthorizationNumber: payrollRun.bankAuthorizationNumber || "",
+      originalAccrualId: String(accrualMovement._id),
+    },
+    createdBy: actorId,
+    updatedBy: actorId,
+    session,
+  });
+};
+
+export const reverseChristmasSalaryAccrualsForPayrollRun = async ({
+  payrollRun,
+  actorId,
+  effectiveAt,
+  session,
+}: PayrollRunChristmasSalaryAccrualInput) => {
+  const payments = await PayrollPayment.find({
+    payrollRun: payrollRun._id,
+    isDeleted: false,
+    isActive: true,
+  })
+    .select(
+      "_id company payrollRun user periodStart periodEnd payDate year month snapshot isActive isDeleted",
+    )
+    .session(session || null)
+    .lean();
+
+  let createdCount = 0;
+  let existingCount = 0;
+  let skippedCount = 0;
+
+  for (const payrollPayment of payments) {
+    const result = await reversePayrollPaymentChristmasSalaryAccrual({
+      payrollRun,
+      payrollPayment,
+      actorId,
+      effectiveAt,
+      session,
+    });
+
+    if ((result as any).created) createdCount++;
+    else if ((result as any).skipped) skippedCount++;
+    else existingCount++;
+  }
+
+  return {
+    createdCount,
+    existingCount,
+    skippedCount,
+    processedCount: payments.length,
   };
 };
