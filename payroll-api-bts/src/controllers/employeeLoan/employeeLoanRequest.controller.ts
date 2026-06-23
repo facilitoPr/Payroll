@@ -6,6 +6,7 @@ import EmployeeLoanRequest from "../../model/employeeLoan/employeeLoanRequest";
 import EmployeeVacationBalance from "../../model/vacation/EmployeeVacationBalance";
 import EmployeeLoanRequestHistory from "../../model/employeeLoan/employeeLoanRequestHistory";
 import VacationDayReservation from "../../model/vacation/VacationDayReservation";
+import { resolveEmployeeLoanGuaranteeSource } from "../../model/employeeLoan/employeeLoanProductConfig";
 
 import { escapeRegex, round2, toNum } from "../../helper/parse";
 import { getQueryString } from "../../helper/request/request.query";
@@ -19,6 +20,7 @@ import {
   reserveVacationDaysForLoan,
 } from "../../services/employeeLoan/employeeLoanRequest.service";
 import {
+  buildChristmasSalaryGuaranteeEligibility,
   buildEmployeeLoanQuoteContext,
   buildExternalPayloadPreview,
   buildSalarySnapshot,
@@ -440,6 +442,90 @@ const getMyEmployeeLoanEligibility = async (
       });
     }
 
+    const guaranteeSource = resolveEmployeeLoanGuaranteeSource(productConfig);
+
+    if (guaranteeSource === "CHRISTMAS_SALARY") {
+      const guarantee = await buildChristmasSalaryGuaranteeEligibility({
+        employee,
+        companyId,
+        productConfig,
+        year,
+        session,
+      });
+
+      const minLoanAmount = Number(productConfig.minLoanAmount || 0);
+      const canRequestLoan =
+        paymentScheduleInfo.supported &&
+        guarantee.blockedReasons.length === 0 &&
+        guarantee.maxAllowedLoanAmount >= minLoanAmount;
+
+      return res.status(200).json({
+        ok: true,
+        employee,
+        policy,
+        productConfig,
+        productRules: buildPublicLoanProductConfigResponse(productConfig),
+        salarySnapshot,
+        paymentSchedule: paymentScheduleInfo,
+        vacationBalance: null,
+        vacationSummary: {
+          serviceMonths: 0,
+          serviceYears: 0,
+          canEnjoyVacations: false,
+          canUseVacationForLoan: false,
+          enjoyableDays: 0,
+          availableDays: 0,
+          accruedPaymentDays: 0,
+          availableForLoanDays: 0,
+          payableVacationDays: 0,
+          netPayableVacationDays: 0,
+          usedDays: 0,
+          reservedDays: 0,
+          adjustmentDays: 0,
+          cycleStartDate: null,
+          cycleEndDate: null,
+          lastCalculatedAt: null,
+        },
+        eligibility: {
+          maxBySalary: 0,
+          maxGuaranteeDaysByPercent: 0,
+          maxGuaranteeDays: 0,
+          maxGuaranteeAmount: guarantee.maxAllowedLoanAmount,
+          maxAllowedAmount: guarantee.maxAllowedLoanAmount,
+          vacationDayAmount: 0,
+          minimumGuaranteeDaysByAmount: 0,
+          canRequestLoan,
+          paymentScheduleSupported: paymentScheduleInfo.supported,
+          paymentFrequency: paymentScheduleInfo.normalizedFrequency,
+          paymentFrequencyCode: paymentScheduleInfo.frequencyCode,
+          paymentFrequencyLabel: paymentScheduleInfo.frequencyLabel,
+          paymentDays: paymentScheduleInfo.paymentDays,
+          monthlyPaymentDay: paymentScheduleInfo.monthlyPaymentDay,
+          paymentScheduleMessage: paymentScheduleInfo.message,
+          maxVacationGuaranteeDays: 0,
+          hasFixedVacationGuaranteeDaysLimit: false,
+          minimumVacationDaysRequired: 0,
+          minLoanAmount,
+          maxLoanAmount: Number(productConfig.maxLoanAmount || 0),
+          minInstallments: Number(productConfig.minInstallments || 1),
+          maxInstallments: Number(productConfig.maxInstallments || 1),
+          availableForLoanDays: 0,
+          accruedPaymentDays: 0,
+          payableVacationDays: 0,
+          netPayableVacationDays: 0,
+          productConfigSource: productConfig?._source || PRODUCT_CONFIG_SOURCE,
+        },
+        guarantee,
+        meta: {
+          year,
+          recalculated: false,
+          recalculatedAt: new Date(),
+        },
+        mensaje: "Elegibilidad calculada correctamente.",
+        message: "Eligibility calculated successfully.",
+      });
+    }
+
     const vacationResult = await recalculateEmployeeVacationBalance({
       userId: String(authUserId),
       asOfDate: new Date(),
@@ -680,22 +766,6 @@ const createEmployeeLoanRequest = async (req: AuthRequest, res: Response) => {
     const purpose = String(req.body.purpose || "").trim();
     const employeeComment = String(req.body.employeeComment || "").trim();
 
-    if (guaranteedDays <= 0) {
-      return res.status(400).json({
-        ok: false,
-        mensaje: "Debes indicar al menos un día para solicitar el préstamo.",
-        message: "At least one vacation day is required.",
-      });
-    }
-
-    if (!Number.isInteger(guaranteedDays)) {
-      return res.status(400).json({
-        ok: false,
-        mensaje: "La cantidad de días debe ser un número entero.",
-        message: "Guaranteed days must be an integer.",
-      });
-    }
-
     let savedLoanRequest: any = null;
 
     await session.withTransaction(async () => {
@@ -749,6 +819,28 @@ const createEmployeeLoanRequest = async (req: AuthRequest, res: Response) => {
 
         salarySnapshot: quoteContext.salarySnapshot,
         vacationSnapshot: quoteContext.vacationSnapshot,
+        guaranteeSourceSnapshot: quoteContext.guaranteeSource,
+        christmasSalaryGuaranteeSnapshot: quoteContext.christmasSalaryGuarantee
+          ? {
+              year: quoteContext.christmasSalaryGuarantee.year,
+              accruedChristmasSalaryAmount:
+                quoteContext.christmasSalaryGuarantee
+                  .accruedChristmasSalaryAmount,
+              reservedGuaranteeAmount:
+                quoteContext.christmasSalaryGuarantee.reservedGuaranteeAmount,
+              availableUnreservedChristmasSalaryAmount:
+                quoteContext.christmasSalaryGuarantee
+                  .availableUnreservedChristmasSalaryAmount,
+              maxAllowedLoanAmount:
+                quoteContext.christmasSalaryGuarantee.maxAllowedLoanAmount,
+              maxChristmasSalaryGuaranteePercent:
+                quoteContext.christmasSalaryGuarantee
+                  .maxChristmasSalaryGuaranteePercent,
+              guaranteeCoverageBasis:
+                quoteContext.productConfig.guaranteeCoverageBasis ||
+                "OUTSTANDING_BALANCE",
+            }
+          : undefined,
 
         loanProviderSnapshot: quoteContext.loanProviderSnapshot,
         loanQuoteSnapshot: quoteContext.loanQuoteSnapshot,
@@ -777,16 +869,19 @@ const createEmployeeLoanRequest = async (req: AuthRequest, res: Response) => {
 
       await loanRequest.save({ session });
 
-      const vacationReservation = await reserveVacationDaysForLoan({
-        loanRequest,
-        employee,
-        companyId: quoteContext.companyId,
-        vacationBalance: quoteContext.vacationBalance,
-        year: quoteContext.vacationSnapshot.year,
-        guaranteedDays: quoteContext.loanCalculation.guaranteedDays,
-        authUserId,
-        session,
-      });
+      const vacationReservation =
+        quoteContext.guaranteeSource === "VACATION_DAYS"
+          ? await reserveVacationDaysForLoan({
+              loanRequest,
+              employee,
+              companyId: quoteContext.companyId,
+              vacationBalance: quoteContext.vacationBalance,
+              year: quoteContext.vacationSnapshot.year,
+              guaranteedDays: quoteContext.loanCalculation.guaranteedDays,
+              authUserId,
+              session,
+            })
+          : null;
 
       await createLoanHistory({
         loanRequest: loanRequest._id,
@@ -802,7 +897,10 @@ const createEmployeeLoanRequest = async (req: AuthRequest, res: Response) => {
           guaranteedDays: quoteContext.loanCalculation.guaranteedDays,
           requestedAmount,
           maxAllowedAmount: quoteContext.loanCalculation.maxAllowedAmount,
-          amountCalculatedFromVacationDays: true,
+          amountCalculatedFromVacationDays: quoteContext.guaranteeSource === "VACATION_DAYS",
+          guaranteeSource: quoteContext.guaranteeSource,
+          christmasSalaryGuarantee:
+            quoteContext.christmasSalaryGuarantee || null,
           productConfigSource:
             quoteContext.productConfig?._source || PRODUCT_CONFIG_SOURCE,
         },
@@ -1545,22 +1643,6 @@ const quoteMyEmployeeLoanRequest = async (req: AuthRequest, res: Response) => {
 
     const guaranteedDays = Number(toNum(req.body.guaranteedDays, 0));
 
-    if (guaranteedDays <= 0) {
-      return res.status(400).json({
-        ok: false,
-        mensaje: "Debes indicar al menos un día para calcular el préstamo.",
-        message: "At least one vacation day is required.",
-      });
-    }
-
-    if (!Number.isInteger(guaranteedDays)) {
-      return res.status(400).json({
-        ok: false,
-        mensaje: "La cantidad de días debe ser un número entero.",
-        message: "Guaranteed days must be an integer.",
-      });
-    }
-
     const employee = await loadEmployeeForLoan({
       authUserId,
       session,
@@ -1643,6 +1725,12 @@ const quoteMyEmployeeLoanRequest = async (req: AuthRequest, res: Response) => {
       loanQuote: quoteContext.loanQuoteSnapshot,
 
       vacationSnapshot: quoteContext.vacationSnapshot,
+      guarantee: quoteContext.christmasSalaryGuarantee || {
+        source: quoteContext.guaranteeSource,
+        label: "D??as de vacaciones",
+        warnings: [],
+        blockedReasons: [],
+      },
       amortizationSchedule: quoteContext.loanQuote.amortizationSchedule,
 
       contract: quoteContext.contract,
@@ -1683,22 +1771,6 @@ const signMyEmployeeLoanContract = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({
         ok: false,
         mensaje: "Debes escribir tu nombre para firmar el contrato.",
-      });
-    }
-
-    if (guaranteedDays <= 0) {
-      return res.status(400).json({
-        ok: false,
-        mensaje: "Debes indicar al menos un día para solicitar el préstamo.",
-        message: "At least one vacation day is required.",
-      });
-    }
-
-    if (!Number.isInteger(guaranteedDays)) {
-      return res.status(400).json({
-        ok: false,
-        mensaje: "La cantidad de días debe ser un número entero.",
-        message: "Guaranteed days must be an integer.",
       });
     }
 
@@ -1792,6 +1864,28 @@ const signMyEmployeeLoanContract = async (req: AuthRequest, res: Response) => {
 
         salarySnapshot: quoteContext.salarySnapshot,
         vacationSnapshot: quoteContext.vacationSnapshot,
+        guaranteeSourceSnapshot: quoteContext.guaranteeSource,
+        christmasSalaryGuaranteeSnapshot: quoteContext.christmasSalaryGuarantee
+          ? {
+              year: quoteContext.christmasSalaryGuarantee.year,
+              accruedChristmasSalaryAmount:
+                quoteContext.christmasSalaryGuarantee
+                  .accruedChristmasSalaryAmount,
+              reservedGuaranteeAmount:
+                quoteContext.christmasSalaryGuarantee.reservedGuaranteeAmount,
+              availableUnreservedChristmasSalaryAmount:
+                quoteContext.christmasSalaryGuarantee
+                  .availableUnreservedChristmasSalaryAmount,
+              maxAllowedLoanAmount:
+                quoteContext.christmasSalaryGuarantee.maxAllowedLoanAmount,
+              maxChristmasSalaryGuaranteePercent:
+                quoteContext.christmasSalaryGuarantee
+                  .maxChristmasSalaryGuaranteePercent,
+              guaranteeCoverageBasis:
+                quoteContext.productConfig.guaranteeCoverageBasis ||
+                "OUTSTANDING_BALANCE",
+            }
+          : undefined,
 
         loanProviderSnapshot: quoteContext.loanProviderSnapshot,
         loanQuoteSnapshot: quoteContext.loanQuoteSnapshot,
@@ -1823,16 +1917,19 @@ const signMyEmployeeLoanContract = async (req: AuthRequest, res: Response) => {
 
       await loanRequest.save({ session });
 
-      const vacationReservation = await reserveVacationDaysForLoan({
-        loanRequest,
-        employee,
-        companyId: quoteContext.companyId,
-        vacationBalance: quoteContext.vacationBalance,
-        year: quoteContext.vacationSnapshot.year,
-        guaranteedDays: quoteContext.loanCalculation.guaranteedDays,
-        authUserId,
-        session,
-      });
+      const vacationReservation =
+        quoteContext.guaranteeSource === "VACATION_DAYS"
+          ? await reserveVacationDaysForLoan({
+              loanRequest,
+              employee,
+              companyId: quoteContext.companyId,
+              vacationBalance: quoteContext.vacationBalance,
+              year: quoteContext.vacationSnapshot.year,
+              guaranteedDays: quoteContext.loanCalculation.guaranteedDays,
+              authUserId,
+              session,
+            })
+          : null;
 
       await createLoanHistory({
         loanRequest: loanRequest._id,
@@ -1850,7 +1947,10 @@ const signMyEmployeeLoanContract = async (req: AuthRequest, res: Response) => {
           totalToPay: quoteContext.loanQuote.totalToPay,
           totalInterest: quoteContext.loanQuote.totalInterest,
           signatureName,
-          amountCalculatedFromVacationDays: true,
+          amountCalculatedFromVacationDays: quoteContext.guaranteeSource === "VACATION_DAYS",
+          guaranteeSource: quoteContext.guaranteeSource,
+          christmasSalaryGuarantee:
+            quoteContext.christmasSalaryGuarantee || null,
           productConfigSource:
             quoteContext.productConfig?._source || PRODUCT_CONFIG_SOURCE,
         },

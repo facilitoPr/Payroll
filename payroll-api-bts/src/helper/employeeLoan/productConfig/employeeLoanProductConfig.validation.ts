@@ -2,6 +2,7 @@ import {
   EMPLOYEE_LOAN_INTEREST_RATE_TYPE,
   EMPLOYEE_LOAN_PAYMENT_FREQUENCY,
   EMPLOYEE_LOAN_ACCOUNT_TYPES,
+  resolveEmployeeLoanGuaranteeSource,
 } from "../../../model/employeeLoan/employeeLoanProductConfig";
 
 
@@ -302,6 +303,8 @@ export const validateLoanRequestAgainstProductConfig = ({
 };
 
 export const buildPublicLoanProductConfigResponse = (productConfig: any) => {
+  const guaranteeSource = resolveEmployeeLoanGuaranteeSource(productConfig);
+
   return {
     productConfigId: String(productConfig._id || ""),
     productCode: productConfig.code || "",
@@ -328,6 +331,36 @@ export const buildPublicLoanProductConfigResponse = (productConfig: any) => {
     ),
 
     amortizePrincipal: Boolean(productConfig.amortizePrincipal),
+
+    loanGuaranteeSource: guaranteeSource,
+    christmasSalaryGuaranteeEnabled:
+      productConfig.christmasSalaryGuaranteeEnabled !== false,
+    maxChristmasSalaryGuaranteePercent: Number(
+      productConfig.maxChristmasSalaryGuaranteePercent ?? 100,
+    ),
+    minimumChristmasSalaryAccumulatedAmount: Number(
+      productConfig.minimumChristmasSalaryAccumulatedAmount || 0,
+    ),
+    blockedLoanRequestMonths: Array.isArray(
+      productConfig.blockedLoanRequestMonths,
+    )
+      ? productConfig.blockedLoanRequestMonths
+      : guaranteeSource === "CHRISTMAS_SALARY"
+        ? [1, 12]
+        : [],
+    blockedInstallmentMonths: Array.isArray(
+      productConfig.blockedInstallmentMonths,
+    )
+      ? productConfig.blockedInstallmentMonths
+      : guaranteeSource === "CHRISTMAS_SALARY"
+        ? [12]
+        : [],
+    requireLoanSettlementBeforeProtectedMonths:
+      productConfig.requireLoanSettlementBeforeProtectedMonths === undefined
+        ? guaranteeSource === "CHRISTMAS_SALARY"
+        : Boolean(productConfig.requireLoanSettlementBeforeProtectedMonths),
+    guaranteeCoverageBasis:
+      productConfig.guaranteeCoverageBasis || "OUTSTANDING_BALANCE",
 
     interestBankAccount: {
       bankName: productConfig.interestBankName || "",

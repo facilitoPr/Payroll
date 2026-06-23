@@ -25,6 +25,18 @@ const normalizeBoolean = (value: any, fallback = false) => {
   return fallback;
 };
 
+const normalizeMonthList = (value: any, fallback: number[] = []) => {
+  const rawValues = Array.isArray(value) ? value : fallback;
+
+  return Array.from(
+    new Set(
+      rawValues
+        .map((item: any) => Math.floor(Number(item)))
+        .filter((month: number) => month >= 1 && month <= 12),
+    ),
+  );
+};
+
 export const buildProductPayload = (body: any) => {
   return {
     name: normalizeString(body.name),
@@ -50,6 +62,39 @@ export const buildProductPayload = (body: any) => {
     ),
 
     amortizePrincipal: normalizeBoolean(body.amortizePrincipal, true),
+
+    loanGuaranteeSource: normalizeUpper(
+      body.loanGuaranteeSource,
+      "CHRISTMAS_SALARY",
+    ),
+    christmasSalaryGuaranteeEnabled: normalizeBoolean(
+      body.christmasSalaryGuaranteeEnabled,
+      true,
+    ),
+    maxChristmasSalaryGuaranteePercent: normalizeNumber(
+      body.maxChristmasSalaryGuaranteePercent,
+      100,
+    ),
+    minimumChristmasSalaryAccumulatedAmount: normalizeNumber(
+      body.minimumChristmasSalaryAccumulatedAmount,
+      0,
+    ),
+    blockedLoanRequestMonths: normalizeMonthList(
+      body.blockedLoanRequestMonths,
+      [1, 12],
+    ),
+    blockedInstallmentMonths: normalizeMonthList(
+      body.blockedInstallmentMonths,
+      [12],
+    ),
+    requireLoanSettlementBeforeProtectedMonths: normalizeBoolean(
+      body.requireLoanSettlementBeforeProtectedMonths,
+      true,
+    ),
+    guaranteeCoverageBasis: normalizeUpper(
+      body.guaranteeCoverageBasis,
+      "OUTSTANDING_BALANCE",
+    ),
 
     minimumVacationDaysRequired: normalizeNumber(
       body.minimumVacationDaysRequired,

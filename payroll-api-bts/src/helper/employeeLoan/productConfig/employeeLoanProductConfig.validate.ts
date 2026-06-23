@@ -1,4 +1,4 @@
-import { EMPLOYEE_LOAN_ACCOUNT_TYPES, EMPLOYEE_LOAN_INTEREST_RATE_TYPE, EMPLOYEE_LOAN_PAYMENT_FREQUENCY, EMPLOYEE_LOAN_VACATION_DAY_VALUE_MODE } from "../../../model/employeeLoan/employeeLoanProductConfig";
+import { EMPLOYEE_LOAN_ACCOUNT_TYPES, EMPLOYEE_LOAN_GUARANTEE_COVERAGE_BASIS, EMPLOYEE_LOAN_GUARANTEE_SOURCE, EMPLOYEE_LOAN_INTEREST_RATE_TYPE, EMPLOYEE_LOAN_PAYMENT_FREQUENCY, EMPLOYEE_LOAN_VACATION_DAY_VALUE_MODE } from "../../../model/employeeLoan/employeeLoanProductConfig";
 
 export const validateProductPayload = (payload: any): string | null => {
   if (!String(payload.name || "").trim()) {
@@ -43,6 +43,45 @@ export const validateProductPayload = (payload: any): string | null => {
     !EMPLOYEE_LOAN_PAYMENT_FREQUENCY.includes(payload.defaultPaymentFrequency)
   ) {
     return "La frecuencia de pago no es válida.";
+  }
+
+
+  if (!EMPLOYEE_LOAN_GUARANTEE_SOURCE.includes(payload.loanGuaranteeSource)) {
+    return "La fuente de garant??a no es v??lida.";
+  }
+
+  if (
+    Number(payload.maxChristmasSalaryGuaranteePercent || 0) < 0 ||
+    Number(payload.maxChristmasSalaryGuaranteePercent || 0) > 100
+  ) {
+    return "El porcentaje m??ximo de doble sueldo debe estar entre 0 y 100.";
+  }
+
+  if (Number(payload.minimumChristmasSalaryAccumulatedAmount || 0) < 0) {
+    return "El monto m??nimo acumulado de doble sueldo no puede ser negativo.";
+  }
+
+  const monthLists = [
+    payload.blockedLoanRequestMonths || [],
+    payload.blockedInstallmentMonths || [],
+  ];
+
+  if (
+    monthLists.some((months) => {
+      const normalized = Array.isArray(months) ? months.map(Number) : [];
+      return (
+        new Set(normalized).size !== normalized.length ||
+        normalized.some(
+          (month) => !Number.isInteger(month) || month < 1 || month > 12,
+        )
+      );
+    })
+  ) {
+    return "Los meses bloqueados deben estar entre 1 y 12 sin duplicados.";
+  }
+
+  if (!EMPLOYEE_LOAN_GUARANTEE_COVERAGE_BASIS.includes(payload.guaranteeCoverageBasis)) {
+    return "La base de cobertura de garant??a no es v??lida.";
   }
 
   if (Number(payload.minimumVacationDaysRequired || 0) < 0) {

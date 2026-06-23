@@ -56,10 +56,14 @@ export type EmployeeLoanGuaranteeCoverageBasis =
 export const DEFAULT_LEGACY_EMPLOYEE_LOAN_GUARANTEE_SOURCE: EmployeeLoanGuaranteeSource =
   "VACATION_DAYS";
 
+export const DEFAULT_NEW_EMPLOYEE_LOAN_GUARANTEE_SOURCE: EmployeeLoanGuaranteeSource =
+  "CHRISTMAS_SALARY";
+
 export const resolveEmployeeLoanGuaranteeSource = (
-  loanGuaranteeSource?: EmployeeLoanGuaranteeSource | null,
+  productConfig?: { loanGuaranteeSource?: EmployeeLoanGuaranteeSource | null } | null,
 ): EmployeeLoanGuaranteeSource =>
-  loanGuaranteeSource || DEFAULT_LEGACY_EMPLOYEE_LOAN_GUARANTEE_SOURCE;
+  productConfig?.loanGuaranteeSource ||
+  DEFAULT_LEGACY_EMPLOYEE_LOAN_GUARANTEE_SOURCE;
 
 const isValidMonthList = (value: number[]) => {
   if (!Array.isArray(value)) return false;
@@ -280,13 +284,14 @@ const employeeLoanProductConfigSchema = new Schema<IEmployeeLoanProductConfig>(
     loanGuaranteeSource: {
       type: String,
       enum: EMPLOYEE_LOAN_GUARANTEE_SOURCE,
-      default: DEFAULT_LEGACY_EMPLOYEE_LOAN_GUARANTEE_SOURCE,
+      default: DEFAULT_NEW_EMPLOYEE_LOAN_GUARANTEE_SOURCE,
+      required: true,
       index: true,
     },
 
     christmasSalaryGuaranteeEnabled: {
       type: Boolean,
-      default: false,
+      default: true,
     },
 
     maxChristmasSalaryGuaranteePercent: {
@@ -304,7 +309,7 @@ const employeeLoanProductConfigSchema = new Schema<IEmployeeLoanProductConfig>(
 
     blockedLoanRequestMonths: {
       type: [Number],
-      default: [],
+      default: [1, 12],
       validate: {
         validator: isValidMonthList,
         message: "Los meses bloqueados para solicitudes deben estar entre 1 y 12 sin duplicados.",
@@ -313,7 +318,7 @@ const employeeLoanProductConfigSchema = new Schema<IEmployeeLoanProductConfig>(
 
     blockedInstallmentMonths: {
       type: [Number],
-      default: [],
+      default: [12],
       validate: {
         validator: isValidMonthList,
         message: "Los meses bloqueados para cuotas deben estar entre 1 y 12 sin duplicados.",
@@ -322,7 +327,7 @@ const employeeLoanProductConfigSchema = new Schema<IEmployeeLoanProductConfig>(
 
     requireLoanSettlementBeforeProtectedMonths: {
       type: Boolean,
-      default: false,
+      default: true,
     },
 
     guaranteeCoverageBasis: {

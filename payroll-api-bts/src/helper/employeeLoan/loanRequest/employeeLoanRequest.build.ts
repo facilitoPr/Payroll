@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import moment from "moment-timezone";
 import { PRODUCT_CONFIG_SOURCE } from "../../../constants/loan";
 import {
   DEFAULT_CURRENCY,
@@ -6,6 +7,11 @@ import {
 } from "../../../constants/payroll";
 import { AuthRequest } from "../../../middlewares/validate-jwt";
 import { IUser } from "../../../model/account/user";
+import EmployeeChristmasSalaryBalance from "../../../model/employee-payment-management/employeeChristmasSalaryBalance";
+import {
+  EmployeeLoanGuaranteeSource,
+  resolveEmployeeLoanGuaranteeSource,
+} from "../../../model/employeeLoan/employeeLoanProductConfig";
 import { toObjectId, toObjectIdOrNull } from "../../objectIds";
 import { round2 } from "../../parse";
 import { calculatePeriodSalaryFromMonthly } from "../../payroll/payroll.calculate";
@@ -480,6 +486,244 @@ export const buildLoanCalculation = ({
   };
 };
 
+const TIMEZONE = "America/Santo_Domingo";
+
+const getCurrentCompanyMonth = () => moment.tz(new Date(), TIMEZONE).month() + 1;
+
+const normalizeConfiguredMonths = (
+  months: any,
+  fallback: number[],
+  guaranteeSource: EmployeeLoanGuaranteeSource,
+) => {
+  if (Array.isArray(months) && months.length) {
+    return Array.from(
+      new Set(
+        months
+          .map((month: any) => Math.floor(Number(month)))
+          .filter((month: number) => month >= 1 && month <= 12),
+      ),
+    );
+  }
+
+  return guaranteeSource === "CHRISTMAS_SALARY" ? fallback : [];
+};
+
+export const getBlockedInstallmentsForLoan = ({
+  amortizationSchedule,
+  blockedInstallmentMonths,
+}: {
+  amortizationSchedule: any[];
+  blockedInstallmentMonths: number[];
+}) => {
+  if (!blockedInstallmentMonths.length) return [];
+
+  return (amortizationSchedule || []).filter((installment: any) => {
+    if (!installment?.dueDate) return false;
+
+    const dueMonth = moment.tz(installment.dueDate, TIMEZONE).month() + 1;
+
+    return blockedInstallmentMonths.includes(dueMonth);
+  });
+};
+
+export const buildChristmasSalaryGuaranteeEligibility = async ({
+  employee,
+  companyId,
+  productConfig,
+  year,
+  amortizationSchedule = [],
+  session,
+}: {
+  employee: any;
+  companyId: any;
+  productConfig: any;
+  year: number;
+  amortizationSchedule?: any[];
+  session?: mongoose.ClientSession;
+}) => {
+  const blockedReasons: string[] = [];
+  const warnings: string[] = [];
+  const blockedLoanRequestMonths = normalizeConfiguredMonths(
+    productConfig?.blockedLoanRequestMonths,
+    [1, 12],
+    "CHRISTMAS_SALARY",
+  );
+  const blockedInstallmentMonths = normalizeConfiguredMonths(
+    productConfig?.blockedInstallmentMonths,
+    [12],
+    "CHRISTMAS_SALARY",
+  );
+  const currentMonth = getCurrentCompanyMonth();
+  const blockedRequestMonth = blockedLoanRequestMonths.includes(currentMonth);
+
+  if (productConfig?.christmasSalaryGuaranteeEnabled === false) {
+    blockedReasons.push(
+      "La garant??a por salario de Navidad no est?? habilitada para este producto.",
+    );
+  }
+
+  if (blockedRequestMonth) {
+    blockedReasons.push(
+      `No se permiten solicitudes de pr??stamo en el mes ${currentMonth}.`,
+    );
+  }
+
+  const balance = companyId
+    ? await EmployeeChristmasSalaryBalance.findOne({
+        company: companyId,
+        employee: employee._id,
+        year,
+        isDeleted: false,
+      }).session(session || null)
+    : null;
+
+  const ordinarySalaryEarnedAmount = round2(
+    balance?.ordinarySalaryEarnedAmount || 0,
+  );
+  const accruedChristmasSalaryAmount = round2(
+    balance?.accruedChristmasSalaryAmount || 0,
+  );
+  const paidChristmasSalaryAmount = round2(
+    balance?.paidChristmasSalaryAmount || 0,
+  );
+  const appliedToTerminationAmount = round2(
+    balance?.appliedToTerminationAmount || 0,
+  );
+  const reservedGuaranteeAmount = round2(
+    balance?.reservedGuaranteeAmount || 0,
+  );
+  const availableUnreservedChristmasSalaryAmount = round2(
+    Math.max(
+      0,
+      accruedChristmasSalaryAmount -
+        paidChristmasSalaryAmount -
+        appliedToTerminationAmount -
+        reservedGuaranteeAmount,
+    ),
+  );
+  const maxChristmasSalaryGuaranteePercent = Math.min(
+    100,
+    Math.max(0, Number(productConfig?.maxChristmasSalaryGuaranteePercent ?? 100)),
+  );
+  const maxByProductPolicy = round2(
+    availableUnreservedChristmasSalaryAmount *
+      (maxChristmasSalaryGuaranteePercent / 100),
+  );
+  const productMaxAmount = Number(productConfig?.maxLoanAmount || 0);
+  const productLimit =
+    productMaxAmount > 0 ? productMaxAmount : Number.POSITIVE_INFINITY;
+  const maxAllowedLoanAmountRaw = Math.min(maxByProductPolicy, productLimit);
+  const maxAllowedLoanAmount = Number.isFinite(maxAllowedLoanAmountRaw)
+    ? round2(maxAllowedLoanAmountRaw)
+    : round2(maxByProductPolicy);
+  const minimumRequiredAmount = round2(
+    productConfig?.minimumChristmasSalaryAccumulatedAmount || 0,
+  );
+
+  if (!balance) {
+    blockedReasons.push(
+      "No existe balance de salario de Navidad para el a??o actual.",
+    );
+  }
+
+  if (accruedChristmasSalaryAmount <= 0) {
+    blockedReasons.push(
+      "No hay salario de Navidad acumulado para garantizar el pr??stamo.",
+    );
+  }
+
+  if (availableUnreservedChristmasSalaryAmount <= 0) {
+    blockedReasons.push(
+      "No hay salario de Navidad disponible sin reservar.",
+    );
+  }
+
+  if (
+    minimumRequiredAmount > 0 &&
+    availableUnreservedChristmasSalaryAmount < minimumRequiredAmount
+  ) {
+    blockedReasons.push(
+      `Debes tener al menos ${minimumRequiredAmount} de salario de Navidad disponible.`,
+    );
+  }
+
+  const blockedInstallments = getBlockedInstallmentsForLoan({
+    amortizationSchedule,
+    blockedInstallmentMonths,
+  });
+  const blockedInstallmentMonth = blockedInstallments.length > 0;
+
+  if (
+    productConfig?.requireLoanSettlementBeforeProtectedMonths === true &&
+    blockedInstallmentMonth
+  ) {
+    blockedReasons.push(
+      "La tabla de amortizaci??n contiene cuotas en meses protegidos.",
+    );
+  } else if (blockedInstallmentMonth) {
+    warnings.push(
+      "La tabla de amortizaci??n contiene cuotas en meses protegidos.",
+    );
+  }
+
+  return {
+    source: "CHRISTMAS_SALARY" as const,
+    label: "Salario de Navidad acumulado",
+    year,
+    balance: balance?._id || null,
+    ordinarySalaryEarnedAmount,
+    accruedChristmasSalaryAmount,
+    paidChristmasSalaryAmount,
+    appliedToTerminationAmount,
+    reservedGuaranteeAmount,
+    availableUnreservedChristmasSalaryAmount,
+    maxChristmasSalaryGuaranteePercent,
+    maxByProductPolicy,
+    maxAllowedLoanAmount,
+    minimumRequiredAmount,
+    blockedLoanRequestMonths,
+    blockedInstallmentMonths,
+    blockedRequestMonth,
+    blockedInstallmentMonth,
+    blockedInstallments: blockedInstallments.map((installment: any) => ({
+      installmentNumber: installment.installmentNumber,
+      dueDate: installment.dueDate,
+    })),
+    blockedReasons,
+    warnings,
+  };
+};
+
+const assertChristmasSalaryLoanRequestIsAllowed = ({
+  requestedAmount,
+  guarantee,
+}: {
+  requestedAmount: number;
+  guarantee: Awaited<ReturnType<typeof buildChristmasSalaryGuaranteeEligibility>>;
+}) => {
+  if (guarantee.blockedReasons.length) {
+    throw {
+      statusCode: 400,
+      mensaje: guarantee.blockedReasons[0],
+      message: "Christmas salary loan guarantee is not eligible.",
+      data: { guarantee },
+    };
+  }
+
+  if (round2(requestedAmount) > round2(guarantee.maxAllowedLoanAmount)) {
+    throw {
+      statusCode: 400,
+      mensaje: `El monto solicitado supera el m??ximo permitido por salario de Navidad (${guarantee.maxAllowedLoanAmount}).`,
+      message: "Requested amount exceeds Christmas salary guarantee limit.",
+      data: {
+        requestedAmount,
+        maxAllowedLoanAmount: guarantee.maxAllowedLoanAmount,
+        guarantee,
+      },
+    };
+  }
+};
+
 export const buildEmployeeLoanQuoteContext = async ({
   req,
   employee,
@@ -504,26 +748,202 @@ export const buildEmployeeLoanQuoteContext = async ({
 
   const productConfig =
     await getActiveEmployeeLoanProductConfigOrThrow(session);
+  const guaranteeSource = resolveEmployeeLoanGuaranteeSource(productConfig);
 
   const salarySnapshot = buildSalarySnapshot(employee);
 
   if (salarySnapshot.monthlySalary <= 0) {
     throw {
       statusCode: 400,
-      mensaje: "No se encontró un sueldo válido para calcular el préstamo.",
+      mensaje: "No se encontr?? un sueldo v??lido para calcular el pr??stamo.",
       message: "No valid salary found to calculate loan request.",
     };
   }
 
   const year = getCurrentYear();
-
   const performedBy = toObjectId(String(authUserId));
 
   if (!performedBy) {
     throw {
       statusCode: 400,
-      mensaje: "El ID de usuario no es válido.",
+      mensaje: "El ID de usuario no es v??lido.",
       message: "Invalid user ID.",
+    };
+  }
+
+  const appliedInstallments = Math.floor(Number(requestedInstallments || 0));
+
+  if (appliedInstallments <= 0) {
+    throw {
+      statusCode: 400,
+      mensaje: "La cantidad de cuotas debe ser mayor a 0.",
+      message: "Installments must be greater than 0.",
+    };
+  }
+
+  if (!Number.isInteger(Number(requestedInstallments))) {
+    throw {
+      statusCode: 400,
+      mensaje: "La cantidad de cuotas debe ser un n??mero entero.",
+      message: "Installments must be an integer.",
+    };
+  }
+
+  if (guaranteeSource === "CHRISTMAS_SALARY") {
+    const requestedAmount = round2(req.body?.requestedAmount || 0);
+
+    validateProductRequestOrThrow({
+      productConfig,
+      requestedAmount,
+      requestedInstallments: appliedInstallments,
+    });
+
+    const employeePaymentSchedule = buildEmployeeLoanPaymentSchedule({
+      employee,
+      installments: appliedInstallments,
+      fromDate: new Date(),
+      frequencyOverride: salarySnapshot.paymentFrequencyName,
+    });
+
+    const paymentFrequency = employeePaymentSchedule.normalizedFrequency;
+    const paymentsPerYear = employeePaymentSchedule.paymentsPerYear;
+    const firstPaymentDate = employeePaymentSchedule.firstPaymentDate;
+
+    const loanQuote = buildAmortizationSchedule({
+      principal: requestedAmount,
+      installments: appliedInstallments,
+      interestRate: Number(productConfig.interestRate || 0),
+      interestRateType: String(productConfig.interestRateType || "ANNUAL"),
+      paymentsPerYear,
+      firstPaymentDate,
+      dueDates: employeePaymentSchedule.dueDates,
+    });
+
+    const christmasSalaryGuarantee = await buildChristmasSalaryGuaranteeEligibility({
+      employee,
+      companyId,
+      productConfig,
+      year,
+      amortizationSchedule: loanQuote.amortizationSchedule,
+      session,
+    });
+
+    assertChristmasSalaryLoanRequestIsAllowed({
+      requestedAmount,
+      guarantee: christmasSalaryGuarantee,
+    });
+
+    const loanProviderSnapshot =
+      buildLoanProviderSnapshotWithSource(productConfig);
+
+    const vacationSnapshot = {
+      year,
+      balance: null,
+      assignedDays: 0,
+      usedDays: 0,
+      reservedDays: 0,
+      adjustmentDays: 0,
+      availableDaysBeforeRequest: 0,
+      guaranteedDays: 0,
+      availableDaysAfterGuarantee: 0,
+      estimatedGuaranteeAmount: 0,
+    };
+
+    const loanCalculation = {
+      requestedAmount,
+      calculatedRequestedAmount: requestedAmount,
+      guaranteedDays: 0,
+      maxBySalary: 0,
+      guaranteeIsRequired: true,
+      vacationDayValueMode: "NONE",
+      vacationDayAmount: 0,
+      maxGuaranteeDaysByPercent: 0,
+      configuredMaxVacationGuaranteeDays: 0,
+      hasFixedVacationGuaranteeDaysLimit: false,
+      maxGuaranteeDays: 0,
+      estimatedGuaranteeAmount: requestedAmount,
+      maxPossibleGuaranteeAmount: christmasSalaryGuarantee.maxAllowedLoanAmount,
+      productMaxAmount: Number(productConfig?.maxLoanAmount || 0),
+      maxAllowedAmount: christmasSalaryGuarantee.maxAllowedLoanAmount,
+      maxAllowedAmountUsingAllAvailableGuarantee:
+        christmasSalaryGuarantee.maxAllowedLoanAmount,
+      availableDays: 0,
+      availableDaysAfterGuarantee: 0,
+      dailySalary: salarySnapshot.dailySalary,
+    };
+
+    return {
+      companyId,
+      policy,
+      productConfig,
+      productRules: buildPublicLoanProductConfigResponse(productConfig),
+      guaranteeSource,
+
+      salarySnapshot,
+      vacationBalance: null,
+      availableForLoanDays: 0,
+      christmasSalaryGuarantee,
+
+      requestedAmount,
+      calculatedRequestedAmount: requestedAmount,
+      requestedInstallments: appliedInstallments,
+
+      loanCalculation,
+
+      paymentConfig: {
+        configuredFrequency: productConfig.defaultPaymentFrequency,
+        employeeFrequency: salarySnapshot.paymentFrequencyName,
+        appliedFrequency: paymentFrequency,
+        frequencyLabel: employeePaymentSchedule.frequencyLabel,
+        paymentsPerYear,
+        paymentDays: employeePaymentSchedule.paymentDays,
+        monthlyPaymentDay: employeePaymentSchedule.monthlyPaymentDay,
+        firstPaymentDate,
+        dueDates: employeePaymentSchedule.dueDates,
+        interestRate: Number(productConfig.interestRate || 0),
+        interestRateType: String(productConfig.interestRateType || "ANNUAL"),
+      },
+
+      loanProviderSnapshot,
+
+      loanQuote,
+      loanQuoteSnapshot: {
+        principal: loanQuote.principal,
+        installments: loanQuote.installments,
+        periodicRate: loanQuote.periodicRate,
+        installmentAmount: loanQuote.installmentAmount,
+        totalInterest: loanQuote.totalInterest,
+        totalToPay: loanQuote.totalToPay,
+        paymentsPerYear: loanQuote.paymentsPerYear,
+        paymentFrequency,
+        paymentDays: employeePaymentSchedule.paymentDays,
+        monthlyPaymentDay: employeePaymentSchedule.monthlyPaymentDay,
+        firstPaymentDate: loanQuote.firstPaymentDate,
+      },
+
+      vacationSnapshot,
+
+      contract: buildEmployeeLoanContractPreviewSnapshot({
+        employee,
+        company: employee?.company,
+        loanQuote,
+        loanProviderSnapshot,
+        vacationSnapshot,
+        salarySnapshot,
+        productConfig,
+        sourcePlatformCode:
+          productConfig?.externalProductCode ||
+          productConfig?.code ||
+          loanProviderSnapshot?.productCode,
+        sourcePlatformName: "Payroll System",
+      }),
+
+      signatureMeta: {
+        signatureIpAddress: getClientIp(req),
+        signatureUserAgent: String(req.headers["user-agent"] || ""),
+      },
+
+      guaranteeIsRequired: true,
     };
   }
 
@@ -570,7 +990,7 @@ export const buildEmployeeLoanQuoteContext = async ({
   ) {
     throw {
       statusCode: 400,
-      mensaje: `Debes tener al menos ${minimumVacationDaysRequired} día(s) de vacaciones disponibles para solicitar este préstamo.`,
+      mensaje: `Debes tener al menos ${minimumVacationDaysRequired} d??a(s) de vacaciones disponibles para solicitar este pr??stamo.`,
       message: "Not enough vacation days available.",
       data: {
         minimumVacationDaysRequired,
@@ -584,7 +1004,7 @@ export const buildEmployeeLoanQuoteContext = async ({
   if (appliedGuaranteedDays <= 0) {
     throw {
       statusCode: 400,
-      mensaje: "Debes indicar al menos un día para solicitar el préstamo.",
+      mensaje: "Debes indicar al menos un d??a para solicitar el pr??stamo.",
       message: "At least one vacation day is required.",
     };
   }
@@ -592,7 +1012,7 @@ export const buildEmployeeLoanQuoteContext = async ({
   if (!Number.isInteger(Number(guaranteedDays))) {
     throw {
       statusCode: 400,
-      mensaje: "La cantidad de días debe ser un número entero.",
+      mensaje: "La cantidad de d??as debe ser un n??mero entero.",
       message: "Guaranteed days must be an integer.",
     };
   }
@@ -607,7 +1027,7 @@ export const buildEmployeeLoanQuoteContext = async ({
     throw {
       statusCode: 400,
       mensaje:
-        "La configuración del préstamo no tiene un valor válido para cada día de vacaciones.",
+        "La configuraci??n del pr??stamo no tiene un valor v??lido para cada d??a de vacaciones.",
       message: "Loan product does not have a valid vacation day value.",
     };
   }
@@ -622,7 +1042,7 @@ export const buildEmployeeLoanQuoteContext = async ({
     throw {
       statusCode: 400,
       mensaje:
-        "Actualmente no tienes días disponibles para solicitar este préstamo.",
+        "Actualmente no tienes d??as disponibles para solicitar este pr??stamo.",
       message: "No vacation days are currently available for this loan.",
     };
   }
@@ -630,7 +1050,7 @@ export const buildEmployeeLoanQuoteContext = async ({
   if (appliedGuaranteedDays > maxGuaranteeDays) {
     throw {
       statusCode: 400,
-      mensaje: `Solo puedes utilizar hasta ${maxGuaranteeDays} día(s) para solicitar este préstamo.`,
+      mensaje: `Solo puedes utilizar hasta ${maxGuaranteeDays} d??a(s) para solicitar este pr??stamo.`,
       message: "Selected vacation days exceed allowed maximum.",
       data: {
         guaranteedDays: appliedGuaranteedDays,
@@ -665,26 +1085,8 @@ export const buildEmployeeLoanQuoteContext = async ({
   if (loanCalculation.availableDaysAfterGuarantee < 0) {
     throw {
       statusCode: 400,
-      mensaje: "No tienes suficientes días disponibles para esa solicitud.",
+      mensaje: "No tienes suficientes d??as disponibles para esa solicitud.",
       message: "Not enough available vacation days.",
-    };
-  }
-
-  const appliedInstallments = Math.floor(Number(requestedInstallments || 0));
-
-  if (appliedInstallments <= 0) {
-    throw {
-      statusCode: 400,
-      mensaje: "La cantidad de cuotas debe ser mayor a 0.",
-      message: "Installments must be greater than 0.",
-    };
-  }
-
-  if (!Number.isInteger(Number(requestedInstallments))) {
-    throw {
-      statusCode: 400,
-      mensaje: "La cantidad de cuotas debe ser un número entero.",
-      message: "Installments must be an integer.",
     };
   }
 
@@ -736,6 +1138,7 @@ export const buildEmployeeLoanQuoteContext = async ({
     policy,
     productConfig,
     productRules: buildPublicLoanProductConfigResponse(productConfig),
+    guaranteeSource,
 
     salarySnapshot,
     vacationBalance,
