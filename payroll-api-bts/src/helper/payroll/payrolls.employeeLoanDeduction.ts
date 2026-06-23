@@ -2,9 +2,13 @@ import { ClientSession, Types } from "mongoose";
 
 import EmployeeLoanRequest from "../../model/employeeLoan/employeeLoanRequest";
 import EmployeeLoanRequestHistory from "../../model/employeeLoan/employeeLoanRequestHistory";
+import EmployeeLoanGuaranteeReservation from "../../model/employeeLoan/employeeLoanGuaranteeReservation";
+import EmployeeLoanProductConfig from "../../model/employeeLoan/employeeLoanProductConfig";
 import { round2 } from "../parse";
 import PayrollPayment from "../../model/employee-payment-management/payrollPayment";
 import PayrollRun from "../../model/employee-payment-management/payrollRun";
+import PayrollAccrual from "../../model/employee-termination/payrollAccrual";
+import { registerChristmasSalaryMovement } from "../../services/employee-payment-management/employeeChristmasSalaryLedger.service";
 
 export type PayrollLoanDeductionMode = "PREVIEW" | "CLOSE";
 
@@ -75,6 +79,258 @@ const getInstallmentAmount = (loan: any, installment: any) => {
     toNumber(installment?.paymentAmount, 0) ||
       toNumber(loan?.loanQuoteSnapshot?.installmentAmount, 0),
   );
+};
+
+const getLoanInstallmentSubdocId = (installment: any) => {
+  const id = installment?._id;
+
+  return id && Types.ObjectId.isValid(String(id)) ? String(id) : "";
+};
+
+const getChristmasGuaranteeCoverageBasisForLoan = async ({
+  loan,
+  session,
+}: {
+  loan: any;
+  session?: ClientSession | null;
+}) => {
+  const snapshotBasis = String(
+    loan?.christmasSalaryGuaranteeSnapshot?.guaranteeCoverageBasis || "",
+  ).toUpperCase();
+
+  if (["OUTSTANDING_BALANCE", "OUTSTANDING_PRINCIPAL"].includes(snapshotBasis)) {
+    return snapshotBasis;
+  }
+
+  const productConfigId = loan?.loanProviderSnapshot?.productConfig;
+
+  if (productConfigId && Types.ObjectId.isValid(String(productConfigId))) {
+    const productConfig = await EmployeeLoanProductConfig.findOne({
+      _id: toObjectId(productConfigId),
+      isDeleted: false,
+    })
+      .select("guaranteeCoverageBasis")
+      .session(session || null)
+      .lean();
+
+    const productBasis = String(
+      productConfig?.guaranteeCoverageBasis || "",
+    ).toUpperCase();
+
+    if (["OUTSTANDING_BALANCE", "OUTSTANDING_PRINCIPAL"].includes(productBasis)) {
+      return productBasis;
+    }
+  }
+
+  return "OUTSTANDING_BALANCE";
+};
+
+const reduceChristmasSalaryGuaranteeAfterInstallmentPaid = async ({
+  loan,
+  installment,
+  payrollRunId,
+  payrollPaymentId,
+  bankAuthorizationNumber,
+  paidAt,
+  actorId,
+  loanFullyPaid,
+  session,
+}: {
+  loan: any;
+  installment: any;
+  payrollRunId: Types.ObjectId;
+  payrollPaymentId?: Types.ObjectId | null;
+  bankAuthorizationNumber: string;
+  paidAt: Date;
+  actorId?: Types.ObjectId | null;
+  loanFullyPaid: boolean;
+  session?: ClientSession | null;
+}) => {
+  if (String(installment?.status || "").toUpperCase() !== "PAID") {
+    return { skipped: true, reason: "INSTALLMENT_NOT_PAID" };
+  }
+
+  const installmentId = getLoanInstallmentSubdocId(installment);
+
+  if (!installmentId) {
+    return { skipped: true, reason: "MISSING_INSTALLMENT_ID" };
+  }
+
+  const loanRequestId = loan?._id;
+  const idempotencyKey = `CHRISTMAS_GUARANTEE_REDUCED:${String(
+    loanRequestId,
+  )}:${installmentId}`;
+
+  const reservationQuery: any = {
+    loanRequest: loanRequestId,
+    source: "CHRISTMAS_SALARY",
+    status: "ACTIVE",
+    isActive: true,
+    isDeleted: false,
+  };
+
+  if (loan.guaranteeReservation) {
+    reservationQuery._id = loan.guaranteeReservation;
+  }
+
+  const reservation = await EmployeeLoanGuaranteeReservation.findOne(
+    reservationQuery,
+  ).session(session || null);
+
+  if (!reservation) {
+    return { skipped: true, reason: "ACTIVE_RESERVATION_NOT_FOUND" };
+  }
+
+  const existingMovement = await PayrollAccrual.findOne({
+    type: "CHRISTMAS_SALARY",
+    movementType: "CHRISTMAS_GUARANTEE_REDUCED",
+    idempotencyKey,
+    isDeleted: false,
+  }).session(session || null);
+
+  if (existingMovement) {
+    return {
+      skipped: false,
+      idempotent: true,
+      movement: existingMovement,
+      reservation,
+    };
+  }
+
+  const remainingReservedAmount = round2(
+    Number(reservation.remainingReservedAmount || 0),
+  );
+
+  if (remainingReservedAmount <= 0) {
+    return { skipped: true, reason: "NO_REMAINING_RESERVATION" };
+  }
+
+  const guaranteeCoverageBasis = await getChristmasGuaranteeCoverageBasisForLoan({
+    loan,
+    session,
+  });
+  const canonicalPaidCoveredAmount = round2(
+    guaranteeCoverageBasis === "OUTSTANDING_PRINCIPAL"
+      ? Number(installment.principalAmount || 0)
+      : Number(installment.paymentAmount || 0),
+  );
+
+  if (canonicalPaidCoveredAmount <= 0) {
+    return { skipped: true, reason: "NO_COVERED_PAID_AMOUNT" };
+  }
+
+  let reductionAmount = Math.min(
+    canonicalPaidCoveredAmount,
+    remainingReservedAmount,
+  );
+
+  reductionAmount = round2(reductionAmount);
+
+  if (reductionAmount <= 0) {
+    return { skipped: true, reason: "NO_REDUCTION_AMOUNT" };
+  }
+
+  const movementResult = await registerChristmasSalaryMovement({
+    company: reservation.company,
+    employee: reservation.employee,
+    year: reservation.year,
+    month: paidAt.getMonth() + 1,
+    periodStart: new Date(reservation.year, 0, 1),
+    periodEnd: new Date(reservation.year, 11, 31, 23, 59, 59, 999),
+    movementType: "CHRISTMAS_GUARANTEE_REDUCED",
+    idempotencyKey,
+    payrollRun: payrollRunId,
+    payrollPayment: payrollPaymentId || null,
+    loanRequest: loanRequestId,
+    guaranteeReservation: reservation._id,
+    installmentNumber: Number(installment.installmentNumber || 0) || null,
+    impact: {
+      ordinarySalaryEarnedAmount: 0,
+      accruedChristmasSalaryAmount: 0,
+      paidChristmasSalaryAmount: 0,
+      appliedToTerminationAmount: 0,
+      reservedGuaranteeAmount: -reductionAmount,
+    },
+    source: "SYSTEM",
+    effectiveAt: paidAt,
+    notes: "Reducción de garantía de salario de Navidad por cuota pagada.",
+    metadata: {
+      installmentId,
+      installmentNumber: installment.installmentNumber,
+      guaranteeCoverageBasis,
+      canonicalPaidCoveredAmount,
+      reductionAmount,
+      bankAuthorizationNumber,
+    },
+    createdBy: actorId || null,
+    updatedBy: actorId || null,
+    session,
+  });
+
+  if (!movementResult.created) {
+    return {
+      skipped: false,
+      idempotent: true,
+      movement: movementResult.movement,
+      balance: movementResult.balance,
+      reservation,
+      reductionAmount: 0,
+    };
+  }
+
+  const reservationAfter = await EmployeeLoanGuaranteeReservation.findOneAndUpdate(
+    {
+      _id: reservation._id,
+      status: "ACTIVE",
+      isActive: true,
+      isDeleted: false,
+      remainingReservedAmount: { $gte: reductionAmount },
+    },
+    {
+      $inc: {
+        remainingReservedAmount: -reductionAmount,
+      },
+      $set: {
+        updatedBy: actorId || reservation.updatedBy || null,
+        metadata: {
+          ...(reservation.metadata || {}),
+          lastReducedAt: paidAt,
+          lastReductionAmount: reductionAmount,
+          lastReducedInstallment: installmentId,
+          lastBankAuthorizationNumber: bankAuthorizationNumber,
+        },
+      },
+    },
+    {
+      new: true,
+      session: session || null,
+    },
+  );
+
+  if (!reservationAfter) {
+    throw new Error("La reserva de garantía cambió mientras se reducía.");
+  }
+
+  if (
+    loanFullyPaid &&
+    Number(reservationAfter.remainingReservedAmount || 0) === 0
+  ) {
+    reservationAfter.status = "CONSUMED";
+    reservationAfter.consumedAt = paidAt;
+    reservationAfter.consumedBy = actorId || null;
+    reservationAfter.updatedBy = actorId || reservationAfter.updatedBy;
+    reservationAfter.isActive = false;
+    await reservationAfter.save({ session: session || undefined });
+  }
+
+  return {
+    skipped: false,
+    idempotent: !movementResult.created,
+    movement: movementResult.movement,
+    balance: movementResult.balance,
+    reservation: reservationAfter,
+    reductionAmount,
+  };
 };
 
 const getLoanBankAccountSnapshot = (loan: any) => {
@@ -802,8 +1058,31 @@ export const finalizeEmployeeLoanDeductionsAfterBankAuthorization = async ({
       updatedInstallments++;
 
       const stillHasPending = (updatedLoan.amortizationSchedule || []).some(
-        (item: any) => String(item.status || "").toUpperCase() === "PENDING",
+        (item: any) =>
+          ["PENDING", "SKIPPED"].includes(
+            String(item.status || "").toUpperCase(),
+          ),
       );
+
+      const paidInstallment = (updatedLoan.amortizationSchedule || []).find(
+        (item: any) =>
+          Number(item.installmentNumber || 0) === installmentNumber &&
+          String(item.status || "").toUpperCase() === "PAID",
+      );
+
+      if (paidInstallment) {
+        await reduceChristmasSalaryGuaranteeAfterInstallmentPaid({
+          loan: updatedLoan,
+          installment: paidInstallment,
+          payrollRunId: runObjectId,
+          payrollPaymentId: payment._id,
+          bankAuthorizationNumber: cleanAuthorization,
+          paidAt,
+          actorId: actorObjectId,
+          loanFullyPaid: !stillHasPending,
+          session,
+        });
+      }
 
       const oldStatus = beforeLoan.status;
 
