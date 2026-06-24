@@ -128,6 +128,22 @@ export interface ITerminationLoanSnapshot {
   loans: ITerminationLoanSnapshotItem[];
 }
 
+export interface IChristmasSalarySettlementSnapshot {
+  year: number;
+  confirmedChristmasSalaryAmount: number;
+  projectedChristmasSalaryFromUnpostedEarnings: number;
+  actualChristmasSalaryTerminationAmount: number;
+  paidChristmasSalaryAmountBefore: number;
+  appliedToTerminationAmountBefore: number;
+  appliedToTerminationAmountAfter: number;
+  pendingChristmasSalaryPayableBefore: number;
+  pendingChristmasSalaryPayableAfter: number;
+  movement?: Types.ObjectId | null;
+  idempotencyKey?: string;
+  createdAt?: Date | null;
+  metadata?: Record<string, any>;
+}
+
 export interface IEmployeeTermination extends mongoose.Document {
   company: Types.ObjectId;
   employee: Types.ObjectId;
@@ -190,6 +206,8 @@ export interface IEmployeeTermination extends mongoose.Document {
   };
 
   loanSnapshot: ITerminationLoanSnapshot;
+
+  christmasSalarySettlementSnapshot?: IChristmasSalarySettlementSnapshot | null;
 
   calculation: {
     automaticIncome: number;
@@ -512,6 +530,38 @@ const terminationLoanSnapshotSchema = new Schema<ITerminationLoanSnapshot>(
   },
 );
 
+const christmasSalarySettlementSnapshotSchema =
+  new Schema<IChristmasSalarySettlementSnapshot>(
+    {
+      year: { type: Number, required: true },
+      confirmedChristmasSalaryAmount: { type: Number, default: 0, min: 0 },
+      projectedChristmasSalaryFromUnpostedEarnings: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      actualChristmasSalaryTerminationAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      paidChristmasSalaryAmountBefore: { type: Number, default: 0, min: 0 },
+      appliedToTerminationAmountBefore: { type: Number, default: 0, min: 0 },
+      appliedToTerminationAmountAfter: { type: Number, default: 0, min: 0 },
+      pendingChristmasSalaryPayableBefore: { type: Number, default: 0, min: 0 },
+      pendingChristmasSalaryPayableAfter: { type: Number, default: 0, min: 0 },
+      movement: {
+        type: Schema.Types.ObjectId,
+        ref: "PayrollAccrual",
+        default: null,
+      },
+      idempotencyKey: { type: String, default: "" },
+      createdAt: { type: Date, default: Date.now },
+      metadata: { type: Schema.Types.Mixed, default: {} },
+    },
+    { _id: false },
+  );
+
 const employeeTerminationSchema = new Schema<IEmployeeTermination>(
   {
     company: {
@@ -660,6 +710,11 @@ const employeeTerminationSchema = new Schema<IEmployeeTermination>(
         calculatedAt: null,
         loans: [],
       }),
+    },
+
+    christmasSalarySettlementSnapshot: {
+      type: christmasSalarySettlementSnapshotSchema,
+      default: null,
     },
 
     calculation: {

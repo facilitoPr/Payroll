@@ -1,4 +1,4 @@
-import mongoose, { Types, isValidObjectId } from "mongoose";
+import mongoose, { Types, isValidObjectId, ClientSession } from "mongoose";
 import moment from "moment";
 import EmployeeTermination, {
   ITerminationCalculationLine,
@@ -46,6 +46,7 @@ import TerminationLoanPayrollPendingPayment from "../../model/employee-terminati
 import EmployeeLoanRequest from "../../model/employeeLoan/employeeLoanRequest";
 import EmployeeLoanRequestHistory from "../../model/employeeLoan/employeeLoanRequestHistory";
 import { releaseVacationLoanReservation } from "../employeeLoan/employeeLoanRequest.service";
+import { registerChristmasSalaryMovement } from "../employee-payment-management/employeeChristmasSalaryLedger.service";
 
 export interface CalculateEmployeeTerminationInput {
   companyId: string;
@@ -1601,6 +1602,211 @@ export const recalculateEmployeeTermination = async (
   return termination;
 };
 
+const getChristmasSalaryTerminationLines = (termination: any) => {
+  const lines = Array.isArray(termination?.calculation?.lines)
+    ? termination.calculation.lines
+    : [];
+
+  return lines.filter(
+    (line: any) =>
+      line?.code === "CHRISTMAS_SALARY" &&
+      line?.type === "EARNING" &&
+      Number(line?.amount || 0) >= 0,
+  );
+};
+
+const applyChristmasSalaryTerminationSettlement = async ({
+  terminationId,
+  paymentDate,
+  userId,
+  session,
+}: {
+  terminationId: string | Types.ObjectId;
+  paymentDate: Date;
+  userId?: string | Types.ObjectId | null;
+  session: ClientSession;
+}) => {
+  const termination: any = await EmployeeTermination.findOne({
+    _id: terminationId,
+    isDeleted: false,
+  }).session(session);
+
+  if (!termination) {
+    throw Object.assign(new Error("Desvinculación no encontrada."), {
+      status: 404,
+    });
+  }
+
+  const christmasLines = getChristmasSalaryTerminationLines(termination);
+  const actualChristmasSalaryTerminationAmount = roundAmount(
+    christmasLines.reduce(
+      (sum: number, line: any) => sum + Number(line?.amount || 0),
+      0,
+    ),
+  );
+  const year = new Date(termination.terminationDate).getFullYear();
+  const idempotencyKey = `CHRISTMAS_TERMINATION_APPLIED:${termination._id}`;
+
+  const [balanceBefore, existingMovement] = await Promise.all([
+    EmployeeChristmasSalaryBalance.findOne({
+      company: termination.company,
+      employee: termination.employee,
+      year,
+      isDeleted: false,
+    }).session(session),
+
+    PayrollAccrual.findOne({
+      type: "CHRISTMAS_SALARY",
+      movementType: "CHRISTMAS_TERMINATION_APPLIED",
+      termination: termination._id,
+      idempotencyKey,
+      isDeleted: false,
+    }).session(session),
+  ]);
+
+  const confirmedChristmasSalaryAmount = roundAmount(
+    balanceBefore?.accruedChristmasSalaryAmount || 0,
+  );
+  const paidChristmasSalaryAmountBefore = roundAmount(
+    balanceBefore?.paidChristmasSalaryAmount || 0,
+  );
+  const appliedToTerminationAmountBefore = roundAmount(
+    balanceBefore?.appliedToTerminationAmount || 0,
+  );
+  const pendingChristmasSalaryPayableBefore = roundAmount(
+    balanceBefore?.pendingChristmasSalaryPayable || 0,
+  );
+  const existingAppliedAmount = roundAmount(
+    existingMovement?.appliedToTerminationAmountDelta || 0,
+  );
+  const pendingBeforeThisTerminationMovement = roundAmount(
+    pendingChristmasSalaryPayableBefore + existingAppliedAmount,
+  );
+
+  if (actualChristmasSalaryTerminationAmount < 0) {
+    throw Object.assign(
+      new Error("El monto de salario de Navidad no puede ser negativo."),
+      { status: 400 },
+    );
+  }
+
+  if (
+    actualChristmasSalaryTerminationAmount >
+    pendingBeforeThisTerminationMovement
+  ) {
+    throw Object.assign(
+      new Error(
+        "El salario de Navidad aplicado excede el balance pendiente disponible.",
+      ),
+      { status: 400 },
+    );
+  }
+
+  if (
+    existingMovement &&
+    actualChristmasSalaryTerminationAmount !== existingAppliedAmount
+  ) {
+    throw Object.assign(
+      new Error(
+        "El movimiento de salario de Navidad aplicado no coincide con la liquidación final.",
+      ),
+      { status: 409 },
+    );
+  }
+
+  let movement: any = existingMovement;
+  let balanceAfter: any = balanceBefore;
+
+  if (actualChristmasSalaryTerminationAmount > 0) {
+    const result = await registerChristmasSalaryMovement({
+      company: termination.company,
+      employee: termination.employee,
+      year,
+      periodStart: termination.terminationDate,
+      periodEnd: termination.terminationDate,
+      movementType: "CHRISTMAS_TERMINATION_APPLIED",
+      idempotencyKey,
+      impact: {
+        ordinarySalaryEarnedAmount: 0,
+        accruedChristmasSalaryAmount: 0,
+        paidChristmasSalaryAmount: 0,
+        appliedToTerminationAmount: existingMovement
+          ? existingAppliedAmount
+          : actualChristmasSalaryTerminationAmount,
+        reservedGuaranteeAmount: 0,
+      },
+      source: "SYSTEM",
+      status: "PAID",
+      termination: termination._id,
+      effectiveAt: paymentDate,
+      notes:
+        "Aplicado al marcar la desvinculación como financieramente pagada.",
+      metadata: {
+        terminationNumber: termination.terminationNumber || "",
+        paymentDate,
+      },
+      createdBy: userId || null,
+      updatedBy: userId || null,
+      session,
+    });
+
+    movement = result.movement;
+    balanceAfter = result.balance;
+  }
+
+  const projectedChristmasSalaryFromUnpostedEarnings = roundAmount(
+    christmasLines.reduce(
+      (sum: number, line: any) =>
+        sum +
+        Number(
+          line?.metadata?.projectedChristmasSalaryFromUnpostedEarnings || 0,
+        ),
+      0,
+    ),
+  );
+
+  termination.christmasSalarySettlementSnapshot = {
+    year,
+    confirmedChristmasSalaryAmount,
+    projectedChristmasSalaryFromUnpostedEarnings,
+    actualChristmasSalaryTerminationAmount,
+    paidChristmasSalaryAmountBefore,
+    appliedToTerminationAmountBefore,
+    appliedToTerminationAmountAfter: roundAmount(
+      balanceAfter?.appliedToTerminationAmount ||
+        appliedToTerminationAmountBefore +
+          actualChristmasSalaryTerminationAmount,
+    ),
+    pendingChristmasSalaryPayableBefore,
+    pendingChristmasSalaryPayableAfter: roundAmount(
+      balanceAfter?.pendingChristmasSalaryPayable ||
+        Math.max(
+          0,
+          pendingChristmasSalaryPayableBefore -
+            actualChristmasSalaryTerminationAmount,
+        ),
+    ),
+    movement: movement?._id || null,
+    idempotencyKey,
+    createdAt: new Date(),
+    metadata: {
+      lineIds: christmasLines.map((line: any) => line?._id).filter(Boolean),
+      canonicalAmountSource:
+        "SUM_OF_PERSISTED_CHRISTMAS_SALARY_EARNING_LINES",
+      movementCreated: Boolean(actualChristmasSalaryTerminationAmount > 0),
+      existingMovementReused: Boolean(existingMovement),
+    },
+  };
+
+  await termination.save({ session });
+
+  return {
+    termination,
+    movement,
+    balance: balanceAfter,
+  };
+};
+
 export const markEmployeeTerminationAsPaid = async (
   id: string,
   body: any,
@@ -1713,6 +1919,23 @@ export const markEmployeeTerminationAsPaid = async (
       termination.updatedBy = getAuthObjectId(userId) as any;
 
       await termination.save({ session });
+
+      /**
+       * Evento financiero definitivo: aquí ya existe TerminationPayment PAID
+       * y la desvinculación queda PAID dentro de la misma transacción.
+       */
+      const christmasSettlement =
+        await applyChristmasSalaryTerminationSettlement({
+          terminationId: termination._id,
+          paymentDate: payment.paymentDate || termination.paidAt || new Date(),
+          userId,
+          session,
+        });
+
+      termination.set({
+        christmasSalarySettlementSnapshot:
+          christmasSettlement.termination.christmasSalarySettlementSnapshot,
+      });
 
       await User.updateOne(
         { _id: termination.employee },
