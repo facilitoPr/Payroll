@@ -19,8 +19,14 @@
             </div>
 
             <div class="header-subtitle">
-              Selecciona los días de vacaciones y el sistema calculará
-              automáticamente el monto equivalente.
+              <template v-if="isChristmasSalaryGuarantee">
+                Indica el monto y las cuotas. La garantía se calcula con tu
+                salario de Navidad acumulado.
+              </template>
+              <template v-else>
+                Selecciona los días de vacaciones y el sistema calculará
+                automáticamente el monto equivalente.
+              </template>
             </div>
           </div>
         </div>
@@ -52,8 +58,14 @@
                     </div>
 
                     <div class="section-subtitle">
-                      Límites calculados usando el balance de vacaciones,
-                      el valor del día y las reglas del producto.
+                      <template v-if="isChristmasSalaryGuarantee">
+                        Límites calculados usando tu salario de Navidad
+                        acumulado y las reglas del producto.
+                      </template>
+                      <template v-else>
+                        Límites calculados usando el balance de vacaciones,
+                        el valor del día y las reglas del producto.
+                      </template>
                     </div>
                   </div>
 
@@ -67,7 +79,72 @@
                   </q-chip>
                 </div>
 
-                <div class="eligibility-grid q-mt-md">
+                <div
+                  v-if="isChristmasSalaryGuarantee"
+                  class="eligibility-grid q-mt-md"
+                >
+                  <div class="eligibility-item">
+                    <div class="mini-label">
+                      Garantía
+                    </div>
+
+                    <div class="mini-value">
+                      Salario de Navidad acumulado
+                    </div>
+                  </div>
+
+                  <div class="eligibility-item">
+                    <div class="mini-label">
+                      Acumulado
+                    </div>
+
+                    <div class="mini-value">
+                      {{ money(christmasGuarantee.accruedChristmasSalaryAmount) }}
+                    </div>
+                  </div>
+
+                  <div class="eligibility-item">
+                    <div class="mini-label">
+                      Reservado
+                    </div>
+
+                    <div class="mini-value">
+                      {{ money(christmasGuarantee.reservedGuaranteeAmount) }}
+                    </div>
+                  </div>
+
+                  <div class="eligibility-item">
+                    <div class="mini-label">
+                      Disponible sin reservar
+                    </div>
+
+                    <div class="mini-value">
+                      {{ money(christmasGuarantee.availableUnreservedChristmasSalaryAmount) }}
+                    </div>
+                  </div>
+
+                  <div class="eligibility-item">
+                    <div class="mini-label">
+                      Porcentaje máximo
+                    </div>
+
+                    <div class="mini-value">
+                      {{ numberValue(christmasGuarantee.maxChristmasSalaryGuaranteePercent) }}%
+                    </div>
+                  </div>
+
+                  <div class="eligibility-item">
+                    <div class="mini-label">
+                      Monto máximo permitido
+                    </div>
+
+                    <div class="mini-value">
+                      {{ money(christmasMaxAllowedAmount) }}
+                    </div>
+                  </div>
+                </div>
+
+                <div v-else class="eligibility-grid q-mt-md">
                   <div class="eligibility-item">
                     <div class="mini-label">
                       Días disponibles
@@ -151,7 +228,7 @@
                 </div>
 
                 <div class="row q-col-gutter-md q-mt-sm">
-                  <div class="col-12 col-md-4">
+                  <div v-if="!isChristmasSalaryGuarantee" class="col-12 col-md-4">
                     <div class="field-label required">
                       Días para el préstamo
                     </div>
@@ -177,7 +254,7 @@
                     </div>
                   </div>
 
-                  <div class="col-12 col-md-4">
+                  <div v-if="!isChristmasSalaryGuarantee" class="col-12 col-md-4">
                     <div class="field-label">
                       Monto equivalente
                     </div>
@@ -205,6 +282,29 @@
                         numberValue(form.guaranteedDays || 0)
                       }}
                       día(s) × {{ money(vacationDayAmount) }}.
+                    </div>
+                  </div>
+
+                  <div v-if="isChristmasSalaryGuarantee" class="col-12 col-md-4">
+                    <div class="field-label required">
+                      Monto solicitado
+                    </div>
+
+                    <q-input
+                      v-model.number="form.requestedAmount"
+                      type="number"
+                      outlined
+                      dense
+                      rounded
+                      color="primary"
+                      min="1"
+                      prefix="RD$"
+                      label="Monto a solicitar"
+                    />
+
+                    <div class="hint-text">
+                      Máximo permitido:
+                      <b>{{ money(christmasMaxAllowedAmount) }}</b>.
                     </div>
                   </div>
 
@@ -266,20 +366,49 @@
                       <span v-else>
                         Solicitarás
                         <b>
-                          {{ money(calculatedRequestedAmount) }}
+                          {{ money(requestedLoanAmount) }}
                         </b>
-                        utilizando
-                        <b>
-                          {{ numberValue(form.guaranteedDays) }}
-                          día(s)
-                        </b>.
-                        Luego de la solicitud quedarán
-                        <b>
-                          {{ numberValue(availableAfterGuarantee) }}
-                          día(s)
-                        </b>
-                        disponibles.
+                        <template v-if="isChristmasSalaryGuarantee">
+                          respaldado por salario de Navidad acumulado.
+                        </template>
+                        <template v-else>
+                          utilizando
+                          <b>
+                            {{ numberValue(form.guaranteedDays) }}
+                            día(s)
+                          </b>.
+                          Luego de la solicitud quedarán
+                          <b>
+                            {{ numberValue(availableAfterGuarantee) }}
+                            día(s)
+                          </b>
+                          disponibles.
+                        </template>
                       </span>
+                    </q-banner>
+
+                    <q-banner
+                      v-for="reason in christmasBlockedReasons"
+                      :key="`blocked-${reason}`"
+                      rounded
+                      class="bg-red-1 text-red-10 q-mt-sm"
+                    >
+                      <template #avatar>
+                        <q-icon name="block" color="negative" />
+                      </template>
+                      {{ reason }}
+                    </q-banner>
+
+                    <q-banner
+                      v-for="warning in christmasWarnings"
+                      :key="`warning-${warning}`"
+                      rounded
+                      class="bg-amber-1 text-amber-10 q-mt-sm"
+                    >
+                      <template #avatar>
+                        <q-icon name="warning" color="warning" />
+                      </template>
+                      {{ warning }}
                     </q-banner>
                   </div>
 
@@ -360,7 +489,12 @@
                   </div>
 
                   <div class="summary-subtitle">
-                    Monto calculado según los días seleccionados.
+                    <template v-if="isChristmasSalaryGuarantee">
+                      Monto solicitado con garantía de salario de Navidad.
+                    </template>
+                    <template v-else>
+                      Monto calculado según los días seleccionados.
+                    </template>
                   </div>
                 </div>
               </q-card-section>
@@ -372,12 +506,12 @@
                   </div>
 
                   <div class="summary-main-value">
-                    {{ money(calculatedRequestedAmount) }}
+                    {{ money(requestedLoanAmount) }}
                   </div>
                 </div>
 
                 <div class="summary-grid q-mt-md">
-                  <div class="summary-box">
+                  <div v-if="!isChristmasSalaryGuarantee" class="summary-box">
                     <div class="summary-label">
                       Días utilizados
                     </div>
@@ -391,7 +525,7 @@
                     </div>
                   </div>
 
-                  <div class="summary-box">
+                  <div v-if="!isChristmasSalaryGuarantee" class="summary-box">
                     <div class="summary-label">
                       Valor por día
                     </div>
@@ -415,7 +549,7 @@
                     </div>
                   </div>
 
-                  <div class="summary-box">
+                  <div v-if="!isChristmasSalaryGuarantee" class="summary-box">
                     <div class="summary-label">
                       Días restantes
                     </div>
@@ -434,7 +568,7 @@
                 </div>
 
                 <div class="summary-list q-mt-md">
-                  <div class="summary-row">
+                  <div v-if="!isChristmasSalaryGuarantee" class="summary-row">
                     <span>Días disponibles</span>
 
                     <strong>
@@ -443,7 +577,7 @@
                     </strong>
                   </div>
 
-                  <div class="summary-row">
+                  <div v-if="!isChristmasSalaryGuarantee" class="summary-row">
                     <span>Máximo permitido</span>
 
                     <strong>
@@ -465,6 +599,22 @@
 
                     <strong>
                       {{ money(maximumLoanAmount) }}
+                    </strong>
+                  </div>
+
+                  <div v-if="isChristmasSalaryGuarantee" class="summary-row">
+                    <span>Disponible sin reservar</span>
+
+                    <strong>
+                      {{ money(christmasGuarantee.availableUnreservedChristmasSalaryAmount) }}
+                    </strong>
+                  </div>
+
+                  <div v-if="isChristmasSalaryGuarantee" class="summary-row">
+                    <span>Máximo por garantía</span>
+
+                    <strong>
+                      {{ money(christmasMaxAllowedAmount) }}
                     </strong>
                   </div>
                 </div>
@@ -496,8 +646,14 @@
                     />
                   </template>
 
-                  Selecciona los días y presiona
-                  <b>Calcular cuotas</b>.
+                  <template v-if="isChristmasSalaryGuarantee">
+                    Indica el monto y presiona
+                    <b>Calcular cuotas</b>.
+                  </template>
+                  <template v-else>
+                    Selecciona los días y presiona
+                    <b>Calcular cuotas</b>.
+                  </template>
                 </q-banner>
 
                 <div
@@ -613,6 +769,7 @@ const amortizationRows = ref([]);
 
 const form = ref({
   guaranteedDays: null,
+  requestedAmount: null,
   requestedInstallments: 1,
   purpose: "",
   employeeComment: "",
@@ -657,6 +814,45 @@ const productConfig = computed(() => {
 
 const eligibilityRules = computed(() => {
   return props.eligibility?.eligibility || {};
+});
+
+const christmasGuarantee = computed(() => {
+  return props.eligibility?.guarantee || {};
+});
+
+const guaranteeSource = computed(() => {
+  return String(
+    christmasGuarantee.value?.source ||
+      productConfig.value?.loanGuaranteeSource ||
+      eligibilityRules.value?.guaranteeSource ||
+      "VACATION_DAYS",
+  ).toUpperCase();
+});
+
+const isChristmasSalaryGuarantee = computed(() => {
+  return guaranteeSource.value === "CHRISTMAS_SALARY";
+});
+
+const christmasMaxAllowedAmount = computed(() => {
+  return round2(
+    Number(
+      christmasGuarantee.value?.maxAllowedLoanAmount ??
+        eligibilityRules.value?.maxAllowedAmount ??
+        0,
+    ),
+  );
+});
+
+const christmasBlockedReasons = computed(() => {
+  return Array.isArray(christmasGuarantee.value?.blockedReasons)
+    ? christmasGuarantee.value.blockedReasons
+    : [];
+});
+
+const christmasWarnings = computed(() => {
+  return Array.isArray(christmasGuarantee.value?.warnings)
+    ? christmasGuarantee.value.warnings
+    : [];
 });
 
 const loanVacationDays = computed(() => {
@@ -891,6 +1087,14 @@ const calculatedRequestedAmount = computed(() => {
   );
 });
 
+const requestedLoanAmount = computed(() => {
+  if (isChristmasSalaryGuarantee.value) {
+    return round2(Number(form.value.requestedAmount || 0));
+  }
+
+  return calculatedRequestedAmount.value;
+});
+
 const maxEquivalentLoanAmount = computed(() => {
   return round2(
     effectiveMaxGuaranteeDays.value *
@@ -908,6 +1112,46 @@ const availableAfterGuarantee = computed(() => {
 const formError = computed(() => {
   if (!props.eligibility) {
     return "No se pudo cargar la elegibilidad del empleado.";
+  }
+
+  const installments = Number(
+    form.value.requestedInstallments || 0,
+  );
+
+  if (!Number.isInteger(installments)) {
+    return "La cantidad de cuotas debe ser un número entero.";
+  }
+
+  if (
+    installments <
+    minimumInstallments.value
+  ) {
+    return `La cantidad mínima permitida es ${minimumInstallments.value} cuota(s).`;
+  }
+
+  if (
+    installments >
+    maximumInstallments.value
+  ) {
+    return `La cantidad máxima permitida es ${maximumInstallments.value} cuota(s).`;
+  }
+
+  if (isChristmasSalaryGuarantee.value) {
+    if (christmasBlockedReasons.value.length) {
+      return christmasBlockedReasons.value[0];
+    }
+
+    const requestedAmount = Number(form.value.requestedAmount || 0);
+
+    if (requestedAmount <= 0) {
+      return "Debes indicar el monto que deseas solicitar.";
+    }
+
+    if (requestedAmount > christmasMaxAllowedAmount.value) {
+      return `El monto solicitado no puede superar ${money(christmasMaxAllowedAmount.value)}.`;
+    }
+
+    return "";
   }
 
   if (vacationDayAmount.value <= 0) {
@@ -963,28 +1207,6 @@ const formError = computed(() => {
     return `El monto calculado no puede superar ${money(maximumLoanAmount.value)}.`;
   }
 
-  const installments = Number(
-    form.value.requestedInstallments || 0,
-  );
-
-  if (!Number.isInteger(installments)) {
-    return "La cantidad de cuotas debe ser un número entero.";
-  }
-
-  if (
-    installments <
-    minimumInstallments.value
-  ) {
-    return `La cantidad mínima permitida es ${minimumInstallments.value} cuota(s).`;
-  }
-
-  if (
-    installments >
-    maximumInstallments.value
-  ) {
-    return `La cantidad máxima permitida es ${maximumInstallments.value} cuota(s).`;
-  }
-
   return "";
 });
 
@@ -1031,6 +1253,7 @@ watch(
 watch(
   () => [
     form.value.guaranteedDays,
+    form.value.requestedAmount,
     form.value.requestedInstallments,
   ],
   () => {
@@ -1096,6 +1319,7 @@ const getEmployeeDocument = () => {
 const resetDialog = () => {
   form.value = {
     guaranteedDays: null,
+    requestedAmount: null,
 
     requestedInstallments:
       minimumInstallments.value,
@@ -1133,11 +1357,11 @@ const closeDialog = () => {
 const buildLoanPayload = () => {
   return {
     requestedAmount: Number(
-      calculatedRequestedAmount.value || 0,
+      requestedLoanAmount.value || 0,
     ),
 
     guaranteedDays: Number(
-      form.value.guaranteedDays || 0,
+      isChristmasSalaryGuarantee.value ? 0 : form.value.guaranteedDays || 0,
     ),
 
     requestedInstallments: Number(

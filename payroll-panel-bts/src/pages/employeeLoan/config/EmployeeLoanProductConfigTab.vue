@@ -10,8 +10,8 @@
           </div>
 
           <div class="panel-subtitle">
-            Configura límites, cuotas, tasa de interés, garantía de
-            vacaciones y cuenta bancaria para recibir los intereses.
+            Configura límites, cuotas, tasa de interés, fuente de garantía y
+            cuenta bancaria para recibir los intereses.
           </div>
         </div>
 
@@ -131,6 +131,17 @@
           <q-td :props="props">
             <div class="column q-gutter-xs">
               <q-chip
+                v-if="props.row.loanGuaranteeSource === 'CHRISTMAS_SALARY'"
+                dense
+                color="blue-1"
+                text-color="primary"
+                icon="redeem"
+              >
+                Salario de Navidad
+              </q-chip>
+
+              <q-chip
+                v-if="props.row.loanGuaranteeSource !== 'CHRISTMAS_SALARY'"
                 dense
                 color="orange-1"
                 text-color="orange-10"
@@ -146,6 +157,7 @@
               </q-chip>
 
               <q-chip
+                v-if="props.row.loanGuaranteeSource !== 'CHRISTMAS_SALARY'"
                 dense
                 color="deep-orange-1"
                 text-color="deep-orange-10"
@@ -159,6 +171,7 @@
               </q-chip>
 
               <q-chip
+                v-if="props.row.loanGuaranteeSource !== 'CHRISTMAS_SALARY'"
                 dense
                 color="green-1"
                 text-color="positive"
@@ -174,6 +187,7 @@
               </q-chip>
 
               <q-chip
+                v-if="props.row.loanGuaranteeSource !== 'CHRISTMAS_SALARY'"
                 dense
                 color="purple-1"
                 text-color="purple-8"
@@ -597,6 +611,42 @@
           >
             <q-card-section>
               <div class="section-title">
+                Fuente de garantía
+              </div>
+
+              <div class="section-subtitle">
+                Define qué balance respalda los préstamos nuevos.
+              </div>
+
+              <q-banner
+                rounded
+                class="bg-blue-1 text-primary q-my-md"
+              >
+                <template #avatar>
+                  <q-icon name="info" color="primary" />
+                </template>
+
+                El cambio de fuente aplica a préstamos nuevos. Los préstamos
+                existentes conservan su garantía original.
+              </q-banner>
+
+              <q-option-group
+                v-model="form.loanGuaranteeSource"
+                type="radio"
+                color="primary"
+                :options="guaranteeSourceOptions"
+              />
+            </q-card-section>
+          </q-card>
+
+          <q-card
+            v-if="form.loanGuaranteeSource === 'VACATION_DAYS'"
+            flat
+            bordered
+            class="section-card q-mb-md"
+          >
+            <q-card-section>
+              <div class="section-title">
                 Límites, cuotas e interés
               </div>
 
@@ -787,6 +837,135 @@
 
                     <q-toggle
                       v-model="form.amortizePrincipal"
+                      color="primary"
+                    />
+                  </q-card>
+                </div>
+              </div>
+            </q-card-section>
+          </q-card>
+
+          <q-card
+            v-if="form.loanGuaranteeSource === 'CHRISTMAS_SALARY'"
+            flat
+            bordered
+            class="section-card q-mb-md"
+          >
+            <q-card-section>
+              <div class="section-title">
+                Garantía con salario de Navidad
+              </div>
+
+              <div class="section-subtitle">
+                Reglas para usar el acumulado de doble sueldo como garantía.
+              </div>
+
+              <div class="row q-col-gutter-md q-mt-sm">
+                <div class="col-12 col-md-4">
+                  <div class="field-label required">
+                    Porcentaje máximo utilizable
+                  </div>
+
+                  <q-input
+                    v-model.number="form.maxChristmasSalaryGuaranteePercent"
+                    type="number"
+                    outlined
+                    dense
+                    rounded
+                    color="primary"
+                    suffix="%"
+                    min="0"
+                    max="100"
+                  />
+                </div>
+
+                <div class="col-12 col-md-4">
+                  <div class="field-label">
+                    Monto mínimo acumulado requerido
+                  </div>
+
+                  <q-input
+                    v-model.number="form.minimumChristmasSalaryAccumulatedAmount"
+                    type="number"
+                    outlined
+                    dense
+                    rounded
+                    color="primary"
+                    prefix="RD$"
+                    min="0"
+                  />
+                </div>
+
+                <div class="col-12 col-md-4">
+                  <div class="field-label required">
+                    Base de cobertura
+                  </div>
+
+                  <q-select
+                    v-model="form.guaranteeCoverageBasis"
+                    outlined
+                    dense
+                    rounded
+                    emit-value
+                    map-options
+                    color="primary"
+                    :options="guaranteeCoverageBasisOptions"
+                  />
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <div class="field-label">
+                    Meses bloqueados para solicitudes
+                  </div>
+
+                  <q-select
+                    v-model="form.blockedLoanRequestMonths"
+                    outlined
+                    dense
+                    rounded
+                    multiple
+                    use-chips
+                    emit-value
+                    map-options
+                    color="primary"
+                    :options="monthOptions"
+                  />
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <div class="field-label">
+                    Meses protegidos para cuotas
+                  </div>
+
+                  <q-select
+                    v-model="form.blockedInstallmentMonths"
+                    outlined
+                    dense
+                    rounded
+                    multiple
+                    use-chips
+                    emit-value
+                    map-options
+                    color="primary"
+                    :options="monthOptions"
+                  />
+                </div>
+
+                <div class="col-12">
+                  <q-card flat bordered class="switch-card">
+                    <div>
+                      <div class="text-subtitle2 text-weight-bold">
+                        Exigir saldo total antes de meses protegidos
+                      </div>
+
+                      <div class="text-caption text-grey-7">
+                        Evita que el préstamo mantenga saldo pendiente en meses
+                        protegidos por la política.
+                      </div>
+                    </div>
+
+                    <q-toggle
+                      v-model="form.requireLoanSettlementBeforeProtectedMonths"
                       color="primary"
                     />
                   </q-card>
@@ -1261,6 +1440,15 @@ const defaultForm = () => ({
   distributeInterestInInstallments: true,
   amortizePrincipal: true,
 
+  loanGuaranteeSource: "CHRISTMAS_SALARY",
+  christmasSalaryGuaranteeEnabled: true,
+  maxChristmasSalaryGuaranteePercent: 100,
+  minimumChristmasSalaryAccumulatedAmount: 0,
+  blockedLoanRequestMonths: [1, 12],
+  blockedInstallmentMonths: [12],
+  requireLoanSettlementBeforeProtectedMonths: true,
+  guaranteeCoverageBasis: "OUTSTANDING_BALANCE",
+
   minimumVacationDaysRequired: 1,
 
   maxVacationDaysGuaranteePercent: 100,
@@ -1407,6 +1595,46 @@ const vacationDayValueModeOptions = [
   },
 ];
 
+const guaranteeSourceOptions = [
+  {
+    label: "Días de vacaciones",
+    value: "VACATION_DAYS",
+  },
+  {
+    label: "Salario de Navidad acumulado",
+    value: "CHRISTMAS_SALARY",
+  },
+];
+
+const guaranteeCoverageBasisOptions = [
+  {
+    label: "Saldo pendiente total",
+    value: "OUTSTANDING_BALANCE",
+  },
+  {
+    label: "Principal pendiente",
+    value: "OUTSTANDING_PRINCIPAL",
+  },
+];
+
+const monthOptions = [
+  "Enero",
+  "Febrero",
+  "Marzo",
+  "Abril",
+  "Mayo",
+  "Junio",
+  "Julio",
+  "Agosto",
+  "Septiembre",
+  "Octubre",
+  "Noviembre",
+  "Diciembre",
+].map((label, index) => ({
+  label,
+  value: index + 1,
+}));
+
 const accountTypeOptions = [
   {
     label: "Cuenta corriente",
@@ -1480,6 +1708,33 @@ const formErrorMessage = computed(() => {
     Number(form.value.interestRate || 0) < 0
   ) {
     return "La tasa de interés no puede ser negativa.";
+  }
+
+  if (
+    !["VACATION_DAYS", "CHRISTMAS_SALARY"].includes(
+      form.value.loanGuaranteeSource,
+    )
+  ) {
+    return "La fuente de garantía no es válida.";
+  }
+
+  if (
+    Number(form.value.maxChristmasSalaryGuaranteePercent || 0) < 0 ||
+    Number(form.value.maxChristmasSalaryGuaranteePercent || 0) > 100
+  ) {
+    return "El porcentaje máximo de doble sueldo debe estar entre 0 y 100.";
+  }
+
+  if (Number(form.value.minimumChristmasSalaryAccumulatedAmount || 0) < 0) {
+    return "El monto mínimo acumulado de doble sueldo no puede ser negativo.";
+  }
+
+  if (
+    !["OUTSTANDING_BALANCE", "OUTSTANDING_PRINCIPAL"].includes(
+      form.value.guaranteeCoverageBasis,
+    )
+  ) {
+    return "La base de cobertura no es válida.";
   }
 
   const minimumVacationDaysRequired = Number(
@@ -1618,6 +1873,18 @@ const guaranteeExampleDays = computed(() => {
   return Math.min(maxByPercent, fixedLimit);
 });
 
+const normalizeMonthList = (value) => {
+  const raw = Array.isArray(value) ? value : [];
+
+  return Array.from(
+    new Set(
+      raw
+        .map((item) => Math.floor(Number(item)))
+        .filter((item) => item >= 1 && item <= 12),
+    ),
+  );
+};
+
 onMounted(async () => {
   await reload();
 });
@@ -1687,6 +1954,14 @@ const openDialog = (row = null) => {
               0,
           ),
         ),
+      ),
+
+      blockedLoanRequestMonths: normalizeMonthList(
+        row.blockedLoanRequestMonths || [],
+      ),
+
+      blockedInstallmentMonths: normalizeMonthList(
+        row.blockedInstallmentMonths || [],
       ),
     };
 
@@ -1778,6 +2053,40 @@ const buildPayload = () => ({
   amortizePrincipal: Boolean(
     form.value.amortizePrincipal,
   ),
+
+  loanGuaranteeSource: String(
+    form.value.loanGuaranteeSource ||
+      "CHRISTMAS_SALARY",
+  ).toUpperCase(),
+
+  christmasSalaryGuaranteeEnabled: Boolean(
+    form.value.christmasSalaryGuaranteeEnabled,
+  ),
+
+  maxChristmasSalaryGuaranteePercent: Number(
+    form.value.maxChristmasSalaryGuaranteePercent || 0,
+  ),
+
+  minimumChristmasSalaryAccumulatedAmount: Number(
+    form.value.minimumChristmasSalaryAccumulatedAmount || 0,
+  ),
+
+  blockedLoanRequestMonths: normalizeMonthList(
+    form.value.blockedLoanRequestMonths,
+  ),
+
+  blockedInstallmentMonths: normalizeMonthList(
+    form.value.blockedInstallmentMonths,
+  ),
+
+  requireLoanSettlementBeforeProtectedMonths: Boolean(
+    form.value.requireLoanSettlementBeforeProtectedMonths,
+  ),
+
+  guaranteeCoverageBasis: String(
+    form.value.guaranteeCoverageBasis ||
+      "OUTSTANDING_BALANCE",
+  ).toUpperCase(),
 
   minimumVacationDaysRequired: Math.max(
     0,

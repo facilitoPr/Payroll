@@ -9,6 +9,8 @@ import TerminationPayment from "../../model/employee-termination/terminationPaym
 import CompanyProfile from "../../model/companyProfile";
 import EmployeeSalaryHistory from "../../model/employee-termination/employeeSalaryHistory";
 import PayrollAccrual from "../../model/employee-termination/payrollAccrual";
+import EmployeeChristmasSalaryBalance from "../../model/employee-payment-management/employeeChristmasSalaryBalance";
+import EmployeeLoanGuaranteeReservation from "../../model/employeeLoan/employeeLoanGuaranteeReservation";
 import LaborTerminationPolicyRD, {
   TerminationTypeCode,
 } from "../../model/employee-termination/laborTerminationPolicyRD";
@@ -33,7 +35,11 @@ import {
   isBeforeProbationEnd,
 } from "../../helper/employee-termination/employee-termination.calculate";
 import User from "../../model/account/user";
-import { calculateTerminationSalaryBases } from "../../helper/employee-termination/employee-termination.payroll-history";
+import {
+  calculateConfirmedChristmasSalaryFromPayrollHistory,
+  calculateTerminationSalaryBases,
+  calculateUnpostedChristmasSalaryUntilTermination,
+} from "../../helper/employee-termination/employee-termination.payroll-history";
 import { getEmployeeLoanTerminationSummary } from "../../helper/employee-termination/employee-termination.loan";
 import { buildPayrollBankFile } from "../../helper/payrollBankFileBuilder";
 import TerminationLoanPayrollPendingPayment from "../../model/employee-termination/terminationLoanPayrollPendingPayment";
@@ -704,6 +710,145 @@ const calculateVacationLine = async (payload: {
   });
 };
 
+type ChristmasSalaryTerminationPreviewSnapshot = {
+  year: number;
+  confirmedChristmasSalaryAmount: number;
+  unpostedEligibleEarningsUntilTermination: number;
+  projectedChristmasSalaryFromUnpostedEarnings: number;
+  paidChristmasSalaryAmount: number;
+  appliedToTerminationAmount: number;
+  projectedPendingChristmasSalaryPayable: number;
+  reservedGuaranteeAmount: number;
+  outstandingLoanBalance: number;
+  balanceFound: boolean;
+  fallbackUsed: boolean;
+  source: string;
+  confirmedSource: string;
+  unpostedSource: string;
+  lastConfirmedPayrollPaymentId?: string;
+  lastConfirmedPeriodEnd?: Date | null;
+  details?: Record<string, any>;
+};
+
+const calculateChristmasSalaryTerminationPreview = async (payload: {
+  companyId: string;
+  employeeId: string;
+  employee: any;
+  hiringDate: Date;
+  terminationDate: Date;
+}): Promise<ChristmasSalaryTerminationPreviewSnapshot> => {
+  const year = payload.terminationDate.getFullYear();
+
+  const [balance, activeReservations] = await Promise.all([
+    EmployeeChristmasSalaryBalance.findOne({
+      company: payload.companyId,
+      employee: payload.employeeId,
+      year,
+      isDeleted: false,
+    }).lean(),
+
+    EmployeeLoanGuaranteeReservation.find({
+      company: payload.companyId,
+      employee: payload.employeeId,
+      year,
+      source: "CHRISTMAS_SALARY",
+      status: "ACTIVE",
+      isDeleted: false,
+      remainingReservedAmount: { $gt: 0 },
+    }).lean(),
+  ]);
+
+  const confirmedHistory = balance
+    ? null
+    : await calculateConfirmedChristmasSalaryFromPayrollHistory({
+        companyId: payload.companyId,
+        employee: payload.employee,
+        hiringDate: payload.hiringDate,
+        terminationDate: payload.terminationDate,
+      });
+
+  const unposted = await calculateUnpostedChristmasSalaryUntilTermination({
+    companyId: payload.companyId,
+    employee: payload.employee,
+    hiringDate: payload.hiringDate,
+    terminationDate: payload.terminationDate,
+  });
+
+  const confirmedChristmasSalaryAmount = roundAmount(
+    balance?.accruedChristmasSalaryAmount ??
+      confirmedHistory?.confirmedChristmasSalaryAmount ??
+      0,
+  );
+
+  const paidChristmasSalaryAmount = roundAmount(
+    balance?.paidChristmasSalaryAmount || 0,
+  );
+
+  const appliedToTerminationAmount = roundAmount(
+    balance?.appliedToTerminationAmount || 0,
+  );
+
+  const reservedFromReservations = roundAmount(
+    activeReservations.reduce(
+      (sum: number, reservation: any) =>
+        sum + Number(reservation.remainingReservedAmount || 0),
+      0,
+    ),
+  );
+
+  const reservedGuaranteeAmount = roundAmount(
+    balance?.reservedGuaranteeAmount ?? reservedFromReservations,
+  );
+
+  const projectedChristmasSalaryFromUnpostedEarnings = roundAmount(
+    unposted.projectedChristmasSalaryFromUnpostedEarnings || 0,
+  );
+
+  const projectedPendingChristmasSalaryPayable = roundAmount(
+    Math.max(
+      0,
+      confirmedChristmasSalaryAmount +
+        projectedChristmasSalaryFromUnpostedEarnings -
+        paidChristmasSalaryAmount -
+        appliedToTerminationAmount,
+    ),
+  );
+
+  return {
+    year,
+    confirmedChristmasSalaryAmount,
+    unpostedEligibleEarningsUntilTermination: roundAmount(
+      unposted.unpostedEligibleEarningsUntilTermination || 0,
+    ),
+    projectedChristmasSalaryFromUnpostedEarnings,
+    paidChristmasSalaryAmount,
+    appliedToTerminationAmount,
+    projectedPendingChristmasSalaryPayable,
+    reservedGuaranteeAmount,
+    outstandingLoanBalance: 0,
+    balanceFound: Boolean(balance),
+    fallbackUsed: Boolean(confirmedHistory?.fallbackUsed || unposted.fallbackUsed),
+    source: balance ? "EMPLOYEE_CHRISTMAS_SALARY_BALANCE" : "PAYROLL_PAYMENT_HISTORY",
+    confirmedSource: balance
+      ? "EMPLOYEE_CHRISTMAS_SALARY_BALANCE"
+      : String(confirmedHistory?.source || "PAYROLL_PAYMENT_HISTORY"),
+    unpostedSource: String(unposted.source || ""),
+    lastConfirmedPayrollPaymentId:
+      unposted.lastConfirmedPayrollPaymentId ||
+      confirmedHistory?.lastConfirmedPayrollPaymentId ||
+      "",
+    lastConfirmedPeriodEnd:
+      unposted.lastConfirmedPeriodEnd ||
+      confirmedHistory?.lastConfirmedPeriodEnd ||
+      null,
+    details: {
+      confirmedHistory,
+      unposted,
+      activeReservationIds: activeReservations.map((item: any) => item._id),
+    },
+  };
+};
+
 const calculateChristmasSalaryLine = async (payload: {
   companyId: string;
   employeeId: string;
@@ -712,6 +857,7 @@ const calculateChristmasSalaryLine = async (payload: {
   monthlySalary: number;
   christmasSalaryRule: any;
   seniorityTotalMonths: number;
+  christmasSalaryPreview?: ChristmasSalaryTerminationPreviewSnapshot | null;
   createdBy?: Types.ObjectId | null;
 }) => {
   const rule = payload.christmasSalaryRule;
@@ -737,6 +883,33 @@ const calculateChristmasSalaryLine = async (payload: {
   }
 
   const year = payload.terminationDate.getFullYear();
+  const preview = payload.christmasSalaryPreview || null;
+
+  if (preview) {
+    const amount = roundAmount(preview.projectedPendingChristmasSalaryPayable);
+
+    if (amount <= 0) return null;
+
+    return buildTerminationLine({
+      code: "CHRISTMAS_SALARY",
+      label: "Regalía pascual / salario de Navidad",
+      type: "EARNING",
+      source: "AUTOMATIC",
+      amount,
+      baseSalary: payload.monthlySalary,
+      createdBy: payload.createdBy || null,
+      notes:
+        "Calculado como balance confirmado más salario elegible no posteado / 12. Reservas y préstamos se muestran por separado.",
+      metadata: {
+        ...preview,
+        year,
+        formula:
+          "max(0, confirmedChristmasSalaryAmount + projectedChristmasSalaryFromUnpostedEarnings - paidChristmasSalaryAmount - appliedToTerminationAmount)",
+        doesNotSubtractReservedGuaranteeAmount: true,
+        doesNotSubtractOutstandingLoanBalance: true,
+      },
+    });
+  }
 
   const accruals = await PayrollAccrual.find({
     company: payload.companyId,
@@ -974,6 +1147,9 @@ export const calculateEmployeeTerminationData = async (
     christmasSalaryDetails: salaryInfo.christmasSalaryDetails,
   });
 
+  let christmasSalaryPreview: ChristmasSalaryTerminationPreviewSnapshot | null =
+    null;
+
   const includeOverrides = input.includeOverrides || {};
 
   const includePendingSalary = resolveInclude(
@@ -1005,6 +1181,16 @@ export const calculateEmployeeTerminationData = async (
     rule.includeEconomicAssistance,
     includeOverrides.includeEconomicAssistance,
   );
+
+  if (includeChristmasSalary && policy.christmasSalaryRule?.enabled) {
+    christmasSalaryPreview = await calculateChristmasSalaryTerminationPreview({
+      companyId: input.companyId,
+      employeeId: input.employeeId,
+      employee,
+      hiringDate,
+      terminationDate,
+    });
+  }
 
   const lines: ITerminationCalculationLine[] = [];
 
@@ -1120,6 +1306,7 @@ export const calculateEmployeeTerminationData = async (
       monthlySalary: salaryInfo.selectedMonthlySalary,
       christmasSalaryRule: policy.christmasSalaryRule,
       seniorityTotalMonths: senioritySnapshot.totalMonths,
+      christmasSalaryPreview,
       createdBy: calculatedBy,
     });
 
@@ -1177,6 +1364,24 @@ export const calculateEmployeeTerminationData = async (
     employeeId,
     maximumDeductionAmount: availableForLoanDeduction,
   });
+
+  if (christmasSalaryPreview) {
+    christmasSalaryPreview = {
+      ...christmasSalaryPreview,
+      outstandingLoanBalance: roundAmount(loanSnapshot.totalOutstanding || 0),
+    };
+
+    const christmasLine = lines.find(
+      (line) => line.code === "CHRISTMAS_SALARY",
+    );
+
+    if (christmasLine) {
+      christmasLine.metadata = {
+        ...(christmasLine.metadata || {}),
+        ...christmasSalaryPreview,
+      };
+    }
+  }
 
   if (
     loanSnapshot.hasActiveLoans &&
@@ -1288,6 +1493,7 @@ export const calculateEmployeeTerminationData = async (
       salarySnapshot,
       senioritySnapshot,
       loanSnapshot,
+      christmasSalaryPreview,
 
       calculation: {
         ...totals,
@@ -1315,6 +1521,8 @@ export const previewEmployeeTermination = async (
     senioritySnapshot: data.terminationPayload.senioritySnapshot,
 
     loanSnapshot: data.terminationPayload.loanSnapshot,
+
+    christmasSalaryPreview: data.terminationPayload.christmasSalaryPreview,
 
     calculation: data.terminationPayload.calculation,
   };

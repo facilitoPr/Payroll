@@ -3,6 +3,9 @@ import mongoose, { Types } from "mongoose";
 
 import User from "../../model/account/user";
 import EmployeeLoanRequest from "../../model/employeeLoan/employeeLoanRequest";
+import EmployeeLoanGuaranteeReservation from "../../model/employeeLoan/employeeLoanGuaranteeReservation";
+import EmployeeChristmasSalaryBalance from "../../model/employee-payment-management/employeeChristmasSalaryBalance";
+import PayrollAccrual from "../../model/employee-termination/payrollAccrual";
 import EmployeeVacationBalance from "../../model/vacation/EmployeeVacationBalance";
 import EmployeeLoanRequestHistory from "../../model/employeeLoan/employeeLoanRequestHistory";
 import VacationDayReservation from "../../model/vacation/VacationDayReservation";
@@ -377,6 +380,574 @@ const buildLoanRequestDetailPayload = (loanRequest: any) => {
     ...payload,
     managementSummary: buildLoanManagementSummary(payload),
   };
+};
+
+const getCurrentDominicanYear = () => {
+  const year = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Santo_Domingo",
+    year: "numeric",
+  }).format(new Date());
+
+  return Number(year);
+};
+
+const getValidChristmasSalaryYear = (rawYear: any) => {
+  const fallbackYear = getCurrentDominicanYear();
+
+  if (rawYear === undefined || rawYear === null || rawYear === "") {
+    return fallbackYear;
+  }
+
+  const year = Number(rawYear);
+
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    return null;
+  }
+
+  return year;
+};
+
+const serializeChristmasSalaryBalance = (balance: any, year: number) => {
+  const raw =
+    typeof balance?.toObject === "function" ? balance.toObject() : balance || {};
+
+  return {
+    year,
+    ordinarySalaryEarnedAmount: round2(raw.ordinarySalaryEarnedAmount || 0),
+    accruedChristmasSalaryAmount: round2(
+      raw.accruedChristmasSalaryAmount || 0,
+    ),
+    paidChristmasSalaryAmount: round2(raw.paidChristmasSalaryAmount || 0),
+    appliedToTerminationAmount: round2(
+      raw.appliedToTerminationAmount || 0,
+    ),
+    reservedGuaranteeAmount: round2(raw.reservedGuaranteeAmount || 0),
+    availableUnreservedChristmasSalaryAmount: round2(
+      raw.availableUnreservedChristmasSalaryAmount || 0,
+    ),
+    pendingChristmasSalaryPayable: round2(
+      raw.pendingChristmasSalaryPayable || 0,
+    ),
+    lastMovementAt: raw.lastMovementAt || null,
+    lastRebuiltAt: raw.lastRebuiltAt || null,
+  };
+};
+
+const serializeChristmasReservation = (reservation: any) => {
+  if (!reservation) return null;
+
+  const raw =
+    typeof reservation?.toObject === "function"
+      ? reservation.toObject()
+      : reservation;
+
+  return {
+    _id: raw._id,
+    company: raw.company,
+    employee: raw.employee,
+    loanRequest: raw.loanRequest,
+    source: raw.source,
+    year: raw.year,
+    reservedAmount: round2(raw.reservedAmount || 0),
+    remainingReservedAmount: round2(raw.remainingReservedAmount || 0),
+    status: raw.status,
+    reason: raw.reason || "",
+    reservedAt: raw.reservedAt || null,
+    releasedAt: raw.releasedAt || null,
+    consumedAt: raw.consumedAt || null,
+    cancelledAt: raw.cancelledAt || null,
+    metadata: raw.metadata || {},
+  };
+};
+
+const serializeChristmasMovement = (movement: any) => {
+  const raw =
+    typeof movement?.toObject === "function" ? movement.toObject() : movement;
+  const movementType = raw.movementType || "LEGACY_OPENING";
+  const impact = {
+    ordinarySalaryEarnedAmount: round2(
+      raw.ordinarySalaryEarnedAmountDelta ??
+        raw.ordinarySalaryBaseAmount ??
+        0,
+    ),
+    accruedChristmasSalaryAmount: round2(
+      raw.accruedAmountDelta ?? raw.accruedAmount ?? 0,
+    ),
+    paidChristmasSalaryAmount: round2(
+      raw.paidAmountDelta ?? raw.paidAmount ?? 0,
+    ),
+    appliedToTerminationAmount: round2(
+      raw.appliedToTerminationAmountDelta || 0,
+    ),
+    reservedGuaranteeAmount: round2(raw.reservedGuaranteeAmountDelta || 0),
+  };
+
+  return {
+    _id: raw._id,
+    movementType,
+    impact,
+    amount: round2(
+      impact.accruedChristmasSalaryAmount ||
+        impact.paidChristmasSalaryAmount ||
+        impact.appliedToTerminationAmount ||
+        impact.reservedGuaranteeAmount ||
+        impact.ordinarySalaryEarnedAmount,
+    ),
+    createdAt: raw.createdAt || null,
+    effectiveAt: raw.effectiveAt || null,
+    payrollRun: raw.payrollRun || null,
+    payrollPayment: raw.payrollPayment || null,
+    loanRequest: raw.loanRequest || null,
+    guaranteeReservation: raw.guaranteeReservation || null,
+    termination: raw.termination || null,
+    description: raw.notes || raw.metadata?.description || "",
+    metadata: raw.metadata || {},
+  };
+};
+
+const serializeChristmasEmployee = (employee: any) => {
+  if (!employee) return null;
+
+  const raw =
+    typeof employee?.toObject === "function" ? employee.toObject() : employee;
+
+  return {
+    _id: raw._id,
+    name: raw.name || "",
+    email: raw.email || "",
+    document: raw.document || raw.idNumber || "",
+    phone: raw.phone || "",
+    company: raw.company || null,
+    department: raw.department || null,
+    jobPosition: raw.jobPosition || null,
+    project: raw.project || null,
+  };
+};
+
+const serializeChristmasLoanSummary = (loanRequest: any) => {
+  if (!loanRequest) return null;
+
+  const raw =
+    typeof loanRequest?.toObject === "function"
+      ? loanRequest.toObject()
+      : loanRequest;
+
+  return {
+    _id: raw._id,
+    requestNumber: raw.requestNumber || "",
+    employee: raw.employee || null,
+    company: raw.company || null,
+    status: raw.status || "",
+    requestedAmount: round2(raw.requestedAmount || 0),
+    approvedAmount: round2(raw.approvedAmount || raw.requestedAmount || 0),
+    requestedInstallments: Number(raw.requestedInstallments || 0),
+    approvedInstallments: Number(raw.approvedInstallments || 0),
+    guaranteeSourceSnapshot: raw.guaranteeSourceSnapshot || "",
+    guaranteeReservation: raw.guaranteeReservation || null,
+    createdAt: raw.createdAt || null,
+  };
+};
+
+const getMyChristmasSalaryLoanGuarantee = async (
+  req: AuthRequest,
+  res: Response,
+) => {
+  try {
+    const authUserId = req.uid;
+    const year = getValidChristmasSalaryYear(req.query.year);
+
+    if (!authUserId) {
+      return res.status(401).json({
+        ok: false,
+        mensaje: "No autorizado.",
+        message: "Unauthorized.",
+      });
+    }
+
+    if (!year) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "El año consultado no es válido.",
+        message: "Invalid year.",
+      });
+    }
+
+    const employeeId = new Types.ObjectId(String(authUserId));
+    const [balance, activeReservations, recentMovements] = await Promise.all([
+      EmployeeChristmasSalaryBalance.findOne({
+        employee: employeeId,
+        year,
+        isDeleted: false,
+      }).lean(),
+      EmployeeLoanGuaranteeReservation.find({
+        employee: employeeId,
+        year,
+        source: "CHRISTMAS_SALARY",
+        status: "ACTIVE",
+        isDeleted: false,
+      })
+        .sort({ reservedAt: -1, createdAt: -1 })
+        .limit(20)
+        .lean(),
+      PayrollAccrual.find({
+        employee: employeeId,
+        year,
+        type: "CHRISTMAS_SALARY",
+        isDeleted: false,
+      })
+        .sort({ effectiveAt: -1, createdAt: -1, _id: -1 })
+        .limit(10)
+        .lean(),
+    ]);
+
+    return res.status(200).json({
+      ok: true,
+      christmasSalary: {
+        ...serializeChristmasSalaryBalance(balance, year),
+        activeReservations: activeReservations.map(serializeChristmasReservation),
+        recentMovements: recentMovements.map(serializeChristmasMovement),
+      },
+      mensaje: "Balance de salario de Navidad cargado correctamente.",
+      message: "Christmas salary balance loaded successfully.",
+    });
+  } catch (error) {
+    console.error("getMyChristmasSalaryLoanGuarantee error:", error);
+
+    return res.status(500).json({
+      ok: false,
+      error,
+      mensaje: "Error cargando el balance de salario de Navidad.",
+      message: "Error loading Christmas salary balance.",
+    });
+  }
+};
+
+const getChristmasSalaryLoanGuarantees = async (
+  req: AuthRequest,
+  res: Response,
+) => {
+  try {
+    if (!canManageEmployeeLoans(req.user)) {
+      return res.status(403).json({
+        ok: false,
+        mensaje: "No tienes permiso para consultar saldos de doble sueldo.",
+        message: "You do not have permission to view Christmas salary balances.",
+      });
+    }
+
+    const page = Math.max(Number(req.query.page || 1), 1);
+    const limit = Math.min(Math.max(Number(req.query.limit || 20), 1), 100);
+    const skip = (page - 1) * limit;
+    const year =
+      req.query.year === undefined || req.query.year === ""
+        ? null
+        : getValidChristmasSalaryYear(req.query.year);
+
+    if (year === null && req.query.year !== undefined && req.query.year !== "") {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "El año consultado no es válido.",
+        message: "Invalid year.",
+      });
+    }
+
+    const filters: any = { isDeleted: false };
+    const companyId = String(req.query.companyId || "").trim();
+    const employeeId = String(req.query.employeeId || "").trim();
+    const hasActiveReservation = String(
+      req.query.hasActiveReservation || "",
+    ).trim();
+    const search = getQueryString(req.query.search || req.query.q);
+
+    if (companyId) {
+      if (!Types.ObjectId.isValid(companyId)) {
+        return res.status(400).json({ ok: false, mensaje: "companyId inválido." });
+      }
+      filters.company = new Types.ObjectId(companyId);
+    }
+
+    if (employeeId) {
+      if (!Types.ObjectId.isValid(employeeId)) {
+        return res.status(400).json({ ok: false, mensaje: "employeeId inválido." });
+      }
+      filters.employee = new Types.ObjectId(employeeId);
+    }
+
+    if (year) filters.year = year;
+
+    if (search) {
+      const regex = new RegExp(escapeRegex(search), "i");
+      const users = await User.find({
+        isDeleted: false,
+        $or: [
+          { name: regex },
+          { email: regex },
+          { document: regex },
+          { idNumber: regex },
+          { phone: regex },
+        ],
+      })
+        .select("_id")
+        .lean();
+
+      const userIds = users.map((user: any) => user._id);
+      filters.employee = filters.employee
+        ? filters.employee
+        : { $in: userIds.length ? userIds : [new Types.ObjectId()] };
+    }
+
+    if (["true", "false"].includes(hasActiveReservation.toLowerCase())) {
+      const reservationFilters: any = {
+        source: "CHRISTMAS_SALARY",
+        status: "ACTIVE",
+        isDeleted: false,
+      };
+
+      if (filters.company) reservationFilters.company = filters.company;
+      if (filters.employee) reservationFilters.employee = filters.employee;
+      if (filters.year) reservationFilters.year = filters.year;
+
+      const reservations = await EmployeeLoanGuaranteeReservation.find(
+        reservationFilters,
+      )
+        .select("employee")
+        .lean();
+      const reservedEmployeeIds = reservations.map(
+        (reservation: any) => reservation.employee,
+      );
+      const currentEmployeeFilter = filters.employee;
+
+      if (hasActiveReservation.toLowerCase() === "true") {
+        filters.employee = {
+          $in: reservedEmployeeIds.length
+            ? reservedEmployeeIds
+            : [new Types.ObjectId()],
+        };
+      } else if (currentEmployeeFilter) {
+        delete filters.employee;
+        filters.$and = [
+          ...(filters.$and || []),
+          { employee: currentEmployeeFilter },
+          { employee: { $nin: reservedEmployeeIds } },
+        ];
+      } else {
+        filters.employee = { $nin: reservedEmployeeIds };
+      }
+    }
+
+    const [total, balances, totals] = await Promise.all([
+      EmployeeChristmasSalaryBalance.countDocuments(filters),
+      EmployeeChristmasSalaryBalance.find(filters)
+        .populate(
+          "employee",
+          "name email phone document idNumber company department jobPosition project",
+        )
+        .populate("company", "legalName commercialName name code")
+        .sort({ year: -1, updatedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      EmployeeChristmasSalaryBalance.aggregate([
+        { $match: filters },
+        {
+          $group: {
+            _id: null,
+            ordinarySalaryEarnedAmount: { $sum: "$ordinarySalaryEarnedAmount" },
+            accruedChristmasSalaryAmount: {
+              $sum: "$accruedChristmasSalaryAmount",
+            },
+            paidChristmasSalaryAmount: { $sum: "$paidChristmasSalaryAmount" },
+            appliedToTerminationAmount: {
+              $sum: "$appliedToTerminationAmount",
+            },
+            reservedGuaranteeAmount: { $sum: "$reservedGuaranteeAmount" },
+            availableUnreservedChristmasSalaryAmount: {
+              $sum: "$availableUnreservedChristmasSalaryAmount",
+            },
+            pendingChristmasSalaryPayable: {
+              $sum: "$pendingChristmasSalaryPayable",
+            },
+          },
+        },
+      ]),
+    ]);
+
+    const activeReservations = await EmployeeLoanGuaranteeReservation.find({
+      employee: { $in: balances.map((balance: any) => balance.employee?._id) },
+      source: "CHRISTMAS_SALARY",
+      status: "ACTIVE",
+      isDeleted: false,
+    })
+      .select("employee year reservedAmount remainingReservedAmount status reservedAt")
+      .lean();
+
+    const reservationsByEmployeeYear = new Map<string, any[]>();
+    activeReservations.forEach((reservation: any) => {
+      const key = `${String(reservation.employee)}:${reservation.year}`;
+      reservationsByEmployeeYear.set(key, [
+        ...(reservationsByEmployeeYear.get(key) || []),
+        serializeChristmasReservation(reservation),
+      ]);
+    });
+
+    const data = balances.map((balance: any) => {
+      const serializedBalance = serializeChristmasSalaryBalance(
+        balance,
+        balance.year,
+      );
+      const key = `${String(balance.employee?._id || balance.employee)}:${balance.year}`;
+
+      return {
+        ...serializedBalance,
+        _id: balance._id,
+        employee: serializeChristmasEmployee(balance.employee),
+        company: balance.company || null,
+        activeReservations: reservationsByEmployeeYear.get(key) || [],
+      };
+    });
+
+    return res.status(200).json({
+      ok: true,
+      data,
+      balances: data,
+      totals: totals[0] || {
+        ordinarySalaryEarnedAmount: 0,
+        accruedChristmasSalaryAmount: 0,
+        paidChristmasSalaryAmount: 0,
+        appliedToTerminationAmount: 0,
+        reservedGuaranteeAmount: 0,
+        availableUnreservedChristmasSalaryAmount: 0,
+        pendingChristmasSalaryPayable: 0,
+      },
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+        returned: data.length,
+      },
+      mensaje: "Saldos de salario de Navidad cargados correctamente.",
+      message: "Christmas salary balances loaded successfully.",
+    });
+  } catch (error) {
+    console.error("getChristmasSalaryLoanGuarantees error:", error);
+
+    return res.status(500).json({
+      ok: false,
+      error,
+      mensaje: "Error cargando saldos de salario de Navidad.",
+      message: "Error loading Christmas salary balances.",
+    });
+  }
+};
+
+const getEmployeeChristmasSalaryLoanGuaranteeDetail = async (
+  req: AuthRequest,
+  res: Response,
+) => {
+  try {
+    if (!canManageEmployeeLoans(req.user)) {
+      return res.status(403).json({
+        ok: false,
+        mensaje: "No tienes permiso para consultar este detalle.",
+        message: "You do not have permission to view this detail.",
+      });
+    }
+
+    const { employeeId } = req.params;
+    const year = getValidChristmasSalaryYear(req.query.year);
+
+    if (!Types.ObjectId.isValid(String(employeeId))) {
+      return res.status(400).json({ ok: false, mensaje: "employeeId inválido." });
+    }
+
+    if (!year) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "El año consultado no es válido.",
+        message: "Invalid year.",
+      });
+    }
+
+    const employeeObjectId = new Types.ObjectId(String(employeeId));
+    const [employee, balance, movements, reservations] = await Promise.all([
+      User.findOne({ _id: employeeObjectId, isDeleted: false })
+        .select("name email phone document idNumber company department jobPosition project")
+        .populate("company", "legalName commercialName name code")
+        .populate("department", "name code")
+        .populate("jobPosition", "name code")
+        .populate("project", "name code")
+        .lean(),
+      EmployeeChristmasSalaryBalance.findOne({
+        employee: employeeObjectId,
+        year,
+        isDeleted: false,
+      }).lean(),
+      PayrollAccrual.find({
+        employee: employeeObjectId,
+        year,
+        type: "CHRISTMAS_SALARY",
+        isDeleted: false,
+      })
+        .sort({ effectiveAt: -1, createdAt: -1, _id: -1 })
+        .limit(100)
+        .lean(),
+      EmployeeLoanGuaranteeReservation.find({
+        employee: employeeObjectId,
+        year,
+        source: "CHRISTMAS_SALARY",
+        isDeleted: false,
+      })
+        .sort({ reservedAt: -1, createdAt: -1 })
+        .lean(),
+    ]);
+
+    if (!employee) {
+      return res.status(404).json({
+        ok: false,
+        mensaje: "Empleado no encontrado.",
+        message: "Employee not found.",
+      });
+    }
+
+    const loanIds = reservations
+      .map((reservation: any) => reservation.loanRequest)
+      .filter(Boolean);
+    const loans = loanIds.length
+      ? await EmployeeLoanRequest.find({
+          _id: { $in: loanIds },
+          isDeleted: false,
+        })
+          .select(
+            "requestNumber employee company status requestedAmount approvedAmount requestedInstallments approvedInstallments guaranteeSourceSnapshot guaranteeReservation createdAt",
+          )
+          .lean()
+      : [];
+
+    return res.status(200).json({
+      ok: true,
+      employee: serializeChristmasEmployee(employee),
+      balance: serializeChristmasSalaryBalance(balance, year),
+      activeReservation:
+        reservations
+          .filter((reservation: any) => reservation.status === "ACTIVE")
+          .map(serializeChristmasReservation)[0] || null,
+      reservations: reservations.map(serializeChristmasReservation),
+      movements: movements.map(serializeChristmasMovement),
+      loans: loans.map(serializeChristmasLoanSummary),
+      mensaje: "Detalle de salario de Navidad cargado correctamente.",
+      message: "Christmas salary detail loaded successfully.",
+    });
+  } catch (error) {
+    console.error("getEmployeeChristmasSalaryLoanGuaranteeDetail error:", error);
+
+    return res.status(500).json({
+      ok: false,
+      error,
+      mensaje: "Error cargando el detalle de salario de Navidad.",
+      message: "Error loading Christmas salary detail.",
+    });
+  }
 };
 
 const getMyEmployeeLoanEligibility = async (
@@ -2055,4 +2626,7 @@ export {
   cancelEmployeeLoanRequestByAdmin,
   quoteMyEmployeeLoanRequest,
   signMyEmployeeLoanContract,
+  getMyChristmasSalaryLoanGuarantee,
+  getChristmasSalaryLoanGuarantees,
+  getEmployeeChristmasSalaryLoanGuaranteeDetail,
 };

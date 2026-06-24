@@ -23,6 +23,11 @@ const uploadCompanyImages = createUploadFieldsProcessor([
  * Employee portal
  */
 employeeLoanRequestRouter.get(
+  "/christmas-salary/me",
+  employeeLoanRequest.getMyChristmasSalaryLoanGuarantee,
+);
+
+employeeLoanRequestRouter.get(
   "/requests/eligibility",
   employeeLoanRequest.getMyEmployeeLoanEligibility,
 );
@@ -93,6 +98,20 @@ employeeLoanRequestRouter.post(
 /**
  * Admin / manager
  */
+employeeLoanRequestRouter.get(
+  "/christmas-salary",
+  employeeLoanRequest.getChristmasSalaryLoanGuarantees,
+);
+
+employeeLoanRequestRouter.get(
+  "/christmas-salary/:employeeId",
+  [
+    check("employeeId", "El ID del empleado no es válido").isMongoId(),
+    validarFields,
+  ],
+  employeeLoanRequest.getEmployeeChristmasSalaryLoanGuaranteeDetail,
+);
+
 employeeLoanRequestRouter.get(
   "/requests",
   employeeLoanRequest.getEmployeeLoanRequests,

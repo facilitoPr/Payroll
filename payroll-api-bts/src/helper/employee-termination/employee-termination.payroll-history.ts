@@ -1,12 +1,14 @@
 import { ClientSession, Types } from "mongoose";
-import PayrollPayment, { IPayrollPayment } from "../../model/employee-payment-management/payrollPayment";
+import PayrollPayment from "../../model/employee-payment-management/payrollPayment";
 
 type CalculationSource =
   | "CURRENT_FIXED_SALARY"
   | "PAYROLL_PAYMENT_LABOR_BASE"
   | "PAYROLL_PAYMENT_EARNINGS"
   | "PAYROLL_PAYMENT_TOTALS"
-  | "EMPLOYEE_CURRENT_SALARY_FALLBACK";
+  | "EMPLOYEE_CURRENT_SALARY_FALLBACK"
+  | "MIXED_PAYROLL_HISTORY"
+  | "NO_UNPOSTED_EARNINGS";
 
 type SalaryBaseStrategy =
   | "FIXED_CURRENT_SALARY"
@@ -50,6 +52,13 @@ const toDateOrNull = (value: any) => {
   return date;
 };
 
+const sameObjectId = (left: any, right: any) => {
+  const leftId = left?._id || left;
+  const rightId = right?._id || right;
+
+  return Boolean(leftId && rightId && String(leftId) === String(rightId));
+};
+
 const startOfDay = (date: Date) => {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
@@ -68,6 +77,12 @@ const addMonths = (date: Date, months: number) => {
   return d;
 };
 
+const addDays = (date: Date, days: number) => {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+};
+
 const getStartOfYear = (date: Date) => {
   return new Date(date.getFullYear(), 0, 1, 0, 0, 0, 0);
 };
@@ -78,6 +93,24 @@ const maxDate = (...dates: (Date | null | undefined)[]) => {
   if (!validDates.length) return null;
 
   return new Date(Math.max(...validDates.map((d) => d.getTime())));
+};
+
+const minDate = (...dates: (Date | null | undefined)[]) => {
+  const validDates = dates.filter(Boolean) as Date[];
+
+  if (!validDates.length) return null;
+
+  return new Date(Math.min(...validDates.map((d) => d.getTime())));
+};
+
+const getInclusiveDays = (start: Date | null, end: Date | null) => {
+  if (!start || !end || start > end) return 0;
+
+  const startDay = startOfDay(start);
+  const endDay = startOfDay(end);
+  const diffMs = endDay.getTime() - startDay.getTime();
+
+  return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1);
 };
 
 const getDateKey = (date: Date | null) => {
@@ -434,12 +467,212 @@ const findEmployeePayrollPayments = async ({
 
   const payments = await PayrollPayment.find(query)
     .sort({ periodEnd: -1, createdAt: -1 })
+    .populate("payrollRun")
     .session(session || null)
     .lean();
 
   return payments.filter((payment: any) =>
     isSameCompanyOrMissing(payment, companyId),
   );
+};
+
+const isFinanciallyConfirmedPayment = (payment: any) => {
+  const payrollRun = payment?.payrollRun;
+
+  const cleanAuthorization = String(
+    payrollRun?.bankAuthorizationNumber || "",
+  ).trim();
+
+  const depositedAt = toDateOrNull(payrollRun?.bankDepositedAt);
+
+  const runIsConfirmed = Boolean(
+    payrollRun &&
+      String(payrollRun.status || "").toUpperCase() === "CLOSED" &&
+      payrollRun.isDeleted !== true &&
+      payrollRun.isActive !== false &&
+      cleanAuthorization &&
+      depositedAt,
+  );
+
+  if (!runIsConfirmed) return false;
+
+  const paymentIsValid = Boolean(
+    payment &&
+      payment.isDeleted !== true &&
+      payment.isActive !== false,
+  );
+
+  if (!paymentIsValid) return false;
+
+  if (payment?.payrollRun && payrollRun?._id) {
+    return sameObjectId(payment.payrollRun, payrollRun._id);
+  }
+
+  return true;
+};
+
+const getLatestConfirmedPayment = (payments: any[]) => {
+  return payments.reduce((latest: any, payment: any) => {
+    if (!isFinanciallyConfirmedPayment(payment)) return latest;
+
+    const periodEnd = getPaymentPeriodEnd(payment);
+
+    if (!periodEnd) return latest;
+
+    const latestPeriodEnd = latest ? getPaymentPeriodEnd(latest) : null;
+
+    if (!latestPeriodEnd || periodEnd > latestPeriodEnd) {
+      return payment;
+    }
+
+    return latest;
+  }, null);
+};
+
+const summarizeChristmasSalaryPayments = (payments: any[]) => {
+  const details: any[] = [];
+
+  let ordinarySalaryAmount = 0;
+
+  for (const payment of payments) {
+    const result = getChristmasSalaryAmountFromPayment(payment);
+
+    ordinarySalaryAmount += Number(result.amount || 0);
+
+    details.push(buildPaymentDetail(payment, result.amount, result.source));
+  }
+
+  const usedSources = new Set(details.map((item) => item.source));
+
+  let source: CalculationSource = "PAYROLL_PAYMENT_LABOR_BASE";
+
+  if (usedSources.size > 1) {
+    source = "MIXED_PAYROLL_HISTORY";
+  } else if (usedSources.size === 1) {
+    source = [...usedSources][0];
+  }
+
+  return {
+    source,
+    ordinarySalaryAmount: roundAmount(ordinarySalaryAmount),
+    details,
+  };
+};
+
+const summarizeUnpostedChristmasSalaryPaymentsForRange = (
+  payments: any[],
+  rangeStart: Date,
+  rangeEnd: Date,
+) => {
+  const details: any[] = [];
+  const coveredIntervals: Array<{ start: Date; end: Date }> = [];
+
+  let ordinarySalaryAmount = 0;
+
+  for (const payment of payments) {
+    const periodStart = startOfDay(getPaymentPeriodStart(payment) || rangeStart);
+    const periodEnd = endOfDay(getPaymentPeriodEnd(payment) || periodStart);
+
+    const overlapStart = maxDate(rangeStart, periodStart);
+    const overlapEnd = minDate(rangeEnd, periodEnd);
+    const overlapDays = getInclusiveDays(overlapStart, overlapEnd);
+
+    if (!overlapStart || !overlapEnd || overlapDays <= 0) continue;
+
+    const periodDays = getInclusiveDays(periodStart, periodEnd);
+
+    if (periodDays <= 0) continue;
+
+    const result = getChristmasSalaryAmountFromPayment(payment);
+    const fullAmount = Number(result.amount || 0);
+    const prorationFactor = Math.min(1, overlapDays / periodDays);
+    const proratedAmount = roundAmount(fullAmount * prorationFactor);
+
+    if (proratedAmount <= 0) continue;
+
+    ordinarySalaryAmount += proratedAmount;
+    coveredIntervals.push({
+      start: startOfDay(overlapStart),
+      end: startOfDay(overlapEnd),
+    });
+
+    details.push({
+      ...buildPaymentDetail(payment, proratedAmount, result.source),
+      fullPeriodAmount: roundAmount(fullAmount),
+      paymentPeriodStart: getDateKey(periodStart),
+      paymentPeriodEnd: getDateKey(periodEnd),
+      overlapStart: getDateKey(overlapStart),
+      overlapEnd: getDateKey(overlapEnd),
+      periodDays,
+      overlapDays,
+      prorationFactor: roundAmount(prorationFactor),
+    });
+  }
+
+  const usedSources = new Set(details.map((item) => item.source));
+
+  let source: CalculationSource = "PAYROLL_PAYMENT_LABOR_BASE";
+
+  if (usedSources.size > 1) {
+    source = "MIXED_PAYROLL_HISTORY";
+  } else if (usedSources.size === 1) {
+    source = [...usedSources][0];
+  } else {
+    source = "NO_UNPOSTED_EARNINGS";
+  }
+
+  return {
+    source,
+    ordinarySalaryAmount: roundAmount(ordinarySalaryAmount),
+    details,
+    coveredIntervals,
+  };
+};
+
+const countCoveredDays = (
+  intervals: Array<{ start: Date; end: Date }>,
+  rangeStart: Date,
+  rangeEnd: Date,
+) => {
+  const normalized = intervals
+    .map((interval) => ({
+      start: maxDate(rangeStart, interval.start),
+      end: minDate(rangeEnd, interval.end),
+    }))
+    .filter(
+      (interval) => interval.start && interval.end && interval.start <= interval.end,
+    )
+    .sort((a, b) => a.start!.getTime() - b.start!.getTime());
+
+  let coveredDays = 0;
+  let currentStart: Date | null = null;
+  let currentEnd: Date | null = null;
+
+  for (const interval of normalized) {
+    const start = interval.start!;
+    const end = interval.end!;
+
+    if (!currentStart || !currentEnd) {
+      currentStart = start;
+      currentEnd = end;
+      continue;
+    }
+
+    if (start <= addDays(currentEnd, 1)) {
+      if (end > currentEnd) currentEnd = end;
+      continue;
+    }
+
+    coveredDays += getInclusiveDays(currentStart, currentEnd);
+    currentStart = start;
+    currentEnd = end;
+  }
+
+  if (currentStart && currentEnd) {
+    coveredDays += getInclusiveDays(currentStart, currentEnd);
+  }
+
+  return coveredDays;
 };
 
 const filterPaymentsByDateRange = (payments: any[], start: Date, end: Date) => {
@@ -748,6 +981,219 @@ export const calculateChristmasSalaryFromPayrollHistory = async ({
     christmasSalaryAmount: roundAmount(christmasSalaryAmount),
 
     payrollPaymentsCount: payments.length,
+    details,
+  };
+};
+
+export const calculateConfirmedChristmasSalaryFromPayrollHistory = async ({
+  companyId,
+  employee,
+  terminationDate,
+  hiringDate,
+  session,
+}: CalculateTerminationSalaryBasesParams) => {
+  const employeeId = toObjectIdOrNull(employee?._id || employee?.id);
+
+  if (!employeeId) {
+    throw new Error("Empleado inválido para calcular salario de Navidad.");
+  }
+
+  const safeTerminationDate = endOfDay(terminationDate);
+  const yearStart = startOfDay(getStartOfYear(safeTerminationDate));
+
+  const employeeHiringDate = toDateOrNull(hiringDate || employee?.hiringDate);
+
+  const rangeStart =
+    maxDate(
+      yearStart,
+      employeeHiringDate ? startOfDay(employeeHiringDate) : null,
+    ) || yearStart;
+
+  const allPayments = await findEmployeePayrollPayments({
+    companyId,
+    employeeId,
+    session,
+  });
+
+  const confirmedPayments = filterPaymentsByDateRange(
+    allPayments.filter(isFinanciallyConfirmedPayment),
+    rangeStart,
+    safeTerminationDate,
+  );
+
+  const summary = summarizeChristmasSalaryPayments(confirmedPayments);
+  const latestConfirmedPayment = getLatestConfirmedPayment(confirmedPayments);
+  const lastConfirmedPeriodEnd = getPaymentPeriodEnd(latestConfirmedPayment);
+
+  return {
+    source: summary.source,
+    fallbackUsed: false,
+
+    rangeStart,
+    rangeEnd: safeTerminationDate,
+
+    confirmedEligibleEarningsAmount: summary.ordinarySalaryAmount,
+    confirmedChristmasSalaryAmount: roundAmount(
+      summary.ordinarySalaryAmount / 12,
+    ),
+
+    lastConfirmedPayrollPaymentId: latestConfirmedPayment?._id
+      ? String(latestConfirmedPayment._id)
+      : "",
+    lastConfirmedPeriodEnd,
+
+    payrollPaymentsCount: confirmedPayments.length,
+    details: summary.details,
+  };
+};
+
+export const calculateUnpostedChristmasSalaryUntilTermination = async ({
+  companyId,
+  employee,
+  terminationDate,
+  hiringDate,
+  session,
+}: CalculateTerminationSalaryBasesParams) => {
+  const employeeId = toObjectIdOrNull(employee?._id || employee?.id);
+
+  if (!employeeId) {
+    throw new Error("Empleado inválido para calcular salario de Navidad.");
+  }
+
+  const safeTerminationDate = endOfDay(terminationDate);
+  const yearStart = startOfDay(getStartOfYear(safeTerminationDate));
+
+  const employeeHiringDate = toDateOrNull(hiringDate || employee?.hiringDate);
+
+  const baseRangeStart =
+    maxDate(
+      yearStart,
+      employeeHiringDate ? startOfDay(employeeHiringDate) : null,
+    ) || yearStart;
+
+  const allPayments = await findEmployeePayrollPayments({
+    companyId,
+    employeeId,
+    session,
+  });
+
+  const latestConfirmedPayment = getLatestConfirmedPayment(allPayments);
+  const lastConfirmedPeriodEnd = getPaymentPeriodEnd(latestConfirmedPayment);
+
+  const rangeStart =
+    maxDate(
+      baseRangeStart,
+      lastConfirmedPeriodEnd
+        ? startOfDay(addDays(lastConfirmedPeriodEnd, 1))
+        : null,
+    ) || baseRangeStart;
+
+  if (rangeStart > safeTerminationDate) {
+    return {
+      source: "NO_UNPOSTED_EARNINGS" as CalculationSource,
+      fallbackUsed: false,
+
+      rangeStart,
+      rangeEnd: safeTerminationDate,
+
+      unpostedEligibleEarningsUntilTermination: 0,
+      projectedChristmasSalaryFromUnpostedEarnings: 0,
+
+      lastConfirmedPayrollPaymentId: latestConfirmedPayment?._id
+        ? String(latestConfirmedPayment._id)
+        : "",
+      lastConfirmedPeriodEnd,
+
+      payrollPaymentsCount: 0,
+      details: [],
+    };
+  }
+
+  const unpostedPayments = allPayments.filter(
+    (payment) => !isFinanciallyConfirmedPayment(payment),
+  );
+
+  const summary = summarizeUnpostedChristmasSalaryPaymentsForRange(
+    unpostedPayments,
+    rangeStart,
+    safeTerminationDate,
+  );
+
+  let unpostedEligibleEarnings = summary.ordinarySalaryAmount;
+  let source = summary.source;
+  let fallbackUsed = false;
+  let details = summary.details;
+
+  const totalIntervalDays = getInclusiveDays(rangeStart, safeTerminationDate);
+  const coveredByUnpostedPaymentsDays = countCoveredDays(
+    summary.coveredIntervals,
+    rangeStart,
+    safeTerminationDate,
+  );
+  const uncoveredDays = Math.max(
+    0,
+    totalIntervalDays - coveredByUnpostedPaymentsDays,
+  );
+
+  if (uncoveredDays > 0) {
+    const monthlySalary = getCurrentEmployeeMonthlySalaryFallback(employee);
+    const fallbackAmount = roundAmount(
+      monthlySalary * (uncoveredDays / 30.4375),
+    );
+
+    if (fallbackAmount > 0) {
+      unpostedEligibleEarnings += fallbackAmount;
+      fallbackUsed = true;
+      source =
+        summary.details.length > 0
+          ? "MIXED_PAYROLL_HISTORY"
+          : "EMPLOYEE_CURRENT_SALARY_FALLBACK";
+      details = [
+        ...details,
+        {
+          payrollPaymentId: "",
+          periodStart: getDateKey(rangeStart),
+          periodEnd: getDateKey(safeTerminationDate),
+          periodKey: "",
+          amount: fallbackAmount,
+          source: "EMPLOYEE_CURRENT_SALARY_FALLBACK",
+          totalIntervalDays,
+          coveredByUnpostedPaymentsDays,
+          uncoveredDays,
+          notes:
+            "Monto prorrateado solo por días no cubiertos por pagos no confirmados elegibles.",
+        },
+      ];
+    }
+  }
+
+  if (unpostedEligibleEarnings <= 0) {
+    source = "NO_UNPOSTED_EARNINGS";
+  }
+
+  return {
+    source,
+    fallbackUsed,
+
+    rangeStart,
+    rangeEnd: safeTerminationDate,
+
+    unpostedEligibleEarningsUntilTermination: roundAmount(
+      unpostedEligibleEarnings,
+    ),
+    projectedChristmasSalaryFromUnpostedEarnings: roundAmount(
+      unpostedEligibleEarnings / 12,
+    ),
+
+    lastConfirmedPayrollPaymentId: latestConfirmedPayment?._id
+      ? String(latestConfirmedPayment._id)
+      : "",
+    lastConfirmedPeriodEnd,
+
+    payrollPaymentsCount: summary.details.length,
+    totalIntervalDays,
+    coveredByUnpostedPaymentsDays,
+    uncoveredDays,
     details,
   };
 };

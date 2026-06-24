@@ -362,6 +362,181 @@
   </div>
 </q-card>
 
+      <!-- SALARIO DE NAVIDAD -->
+<q-card
+  v-if="showEmployeeSections"
+  flat
+  bordered
+  class="vacation-balance-card q-mb-md"
+>
+  <q-inner-loading :showing="loadingChristmasSalary">
+    <q-spinner size="34px" color="primary" />
+  </q-inner-loading>
+
+  <div class="vacation-balance-header">
+    <div class="row items-center justify-between q-col-gutter-md">
+      <div class="col-12 col-md">
+        <div class="row items-center no-wrap q-gutter-sm">
+          <q-avatar class="vacation-header-avatar" size="50px">
+            <q-icon name="redeem" size="28px" />
+          </q-avatar>
+
+          <div>
+            <div class="text-subtitle1 text-weight-bold">
+              Salario de Navidad
+            </div>
+            <div class="text-caption text-grey-7">
+              Consulta el acumulado usado como garantía de préstamos.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-md-auto">
+        <q-btn
+          unelevated
+          rounded
+          color="primary"
+          icon="refresh"
+          label="Actualizar"
+          class="action-btn"
+          :loading="loadingChristmasSalary"
+          @click="loadChristmasSalarySummary"
+        />
+      </div>
+    </div>
+  </div>
+
+  <q-separator />
+
+  <div class="q-pa-md">
+    <q-banner
+      v-if="christmasSalaryError"
+      rounded
+      class="bg-red-1 text-negative q-mb-md"
+    >
+      <template #avatar>
+        <q-icon name="error_outline" />
+      </template>
+
+      {{ christmasSalaryError }}
+    </q-banner>
+
+    <template v-if="christmasSalary">
+      <div class="row q-col-gutter-md">
+        <div
+          v-for="item in christmasSalaryMetricItems"
+          :key="item.key"
+          class="col-12 col-sm-6 col-md-3"
+        >
+          <q-card flat bordered class="vacation-metric-card">
+            <div class="row items-start justify-between no-wrap">
+              <div>
+                <div class="vacation-metric-label">
+                  {{ item.label }}
+                </div>
+                <div class="vacation-metric-value">
+                  {{ item.value }}
+                </div>
+                <div class="vacation-metric-caption">
+                  {{ item.caption }}
+                </div>
+              </div>
+              <q-avatar
+                :color="item.color"
+                text-color="white"
+                :icon="item.icon"
+                size="42px"
+              />
+            </div>
+          </q-card>
+        </div>
+      </div>
+
+      <div class="row q-col-gutter-md q-mt-sm">
+        <div class="col-12 col-md-5">
+          <q-card flat bordered class="q-pa-md full-height">
+            <div class="text-subtitle2 text-weight-bold q-mb-sm">
+              Reservas activas
+            </div>
+            <div
+              v-if="!christmasActiveReservations.length"
+              class="text-caption text-grey-7"
+            >
+              No tienes reservas activas.
+            </div>
+            <q-list v-else dense separator>
+              <q-item
+                v-for="reservation in christmasActiveReservations"
+                :key="reservation._id"
+              >
+                <q-item-section>
+                  <q-item-label>
+                    {{ formatCurrency(reservation.remainingReservedAmount) }}
+                  </q-item-label>
+                  <q-item-label caption>
+                    Reservado: {{ formatCurrency(reservation.reservedAmount) }}
+                  </q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <q-badge color="primary" label="Activa" />
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-card>
+        </div>
+
+        <div class="col-12 col-md-7">
+          <q-card flat bordered class="q-pa-md full-height">
+            <div class="text-subtitle2 text-weight-bold q-mb-sm">
+              Movimientos recientes
+            </div>
+            <div
+              v-if="!christmasRecentMovements.length"
+              class="text-caption text-grey-7"
+            >
+              No hay movimientos recientes.
+            </div>
+            <q-list v-else dense separator>
+              <q-item
+                v-for="movement in christmasRecentMovements"
+                :key="movement._id"
+              >
+                <q-item-section>
+                  <q-item-label>
+                    {{ christmasMovementLabel(movement.movementType) }}
+                  </q-item-label>
+                  <q-item-label caption>
+                    {{ formatDateTime(movement.effectiveAt || movement.createdAt) }}
+                  </q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <span class="text-weight-bold">
+                    {{ formatCurrency(movement.amount) }}
+                  </span>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-card>
+        </div>
+      </div>
+    </template>
+
+    <div
+      v-else-if="!loadingChristmasSalary && !christmasSalaryError"
+      class="vacation-empty-state"
+    >
+      <q-icon name="redeem" size="42px" color="grey-5" />
+      <div class="text-subtitle2 text-grey-8 q-mt-sm">
+        No hay balance de salario de Navidad para este año.
+      </div>
+      <div class="text-caption text-grey-6">
+        Cuando exista acumulación, reservas o movimientos se mostrarán aquí.
+      </div>
+    </div>
+  </div>
+</q-card>
+
       <div class="row q-col-gutter-md">
         <!-- FORMULARIO PERFIL -->
         <div class="col-12 col-lg-7">
@@ -726,6 +901,7 @@ import moment from "moment";
 
 const ME_ENDPOINT = "auth/me";
 const VACATION_SUMMARY_ENDPOINT = "employee-vacation/my-summary";
+const CHRISTMAS_SALARY_ENDPOINT = "employee-loan/christmas-salary/me";
 
 const DEFAULT_AVATAR =
   "https://plus-nautic.nyc3.digitaloceanspaces.com/profile_avatar.png";
@@ -750,6 +926,25 @@ const currentUser = ref(null);
 const loadingVacationBalance = ref(false);
 const vacationBalanceResponse = ref(null);
 const vacationBalanceError = ref("");
+const loadingChristmasSalary = ref(false);
+const christmasSalaryResponse = ref(null);
+const christmasSalaryError = ref("");
+
+const christmasSalary = computed(() => {
+  return christmasSalaryResponse.value?.christmasSalary || null;
+});
+
+const christmasActiveReservations = computed(() => {
+  return Array.isArray(christmasSalary.value?.activeReservations)
+    ? christmasSalary.value.activeReservations
+    : [];
+});
+
+const christmasRecentMovements = computed(() => {
+  return Array.isArray(christmasSalary.value?.recentMovements)
+    ? christmasSalary.value.recentMovements
+    : [];
+});
 
 const vacationBalance = computed(() => {
   return vacationBalanceResponse.value?.balance || null;
@@ -838,6 +1033,71 @@ const formatVacationDays = (value) => {
 
   return `${number.toFixed(number % 1 === 0 ? 0 : 2)} días`;
 };
+
+const formatCurrency = (value) => {
+  return new Intl.NumberFormat("es-DO", {
+    style: "currency",
+    currency: "DOP",
+    minimumFractionDigits: 2,
+  }).format(Number(value || 0));
+};
+
+const formatDateTime = (value) => {
+  if (!value) return "Sin fecha";
+  return moment(value).format("DD/MM/YYYY hh:mm A");
+};
+
+const christmasMovementLabel = (movementType) => {
+  const labels = {
+    CHRISTMAS_ACCRUAL: "Acumulación por nómina",
+    CHRISTMAS_GUARANTEE_RESERVED: "Garantía reservada para préstamo",
+    CHRISTMAS_GUARANTEE_REDUCED: "Garantía reducida por cuota pagada",
+    CHRISTMAS_GUARANTEE_RELEASED: "Garantía liberada",
+    CHRISTMAS_ACCRUAL_REVERSAL: "Reverso de acumulación",
+    LEGACY_OPENING: "Saldo histórico inicial",
+  };
+
+  return labels[movementType] || movementType || "Movimiento";
+};
+
+const christmasSalaryMetricItems = computed(() => {
+  const balance = christmasSalary.value || {};
+
+  return [
+    {
+      key: "accrued",
+      icon: "redeem",
+      label: "Salario de Navidad acumulado",
+      value: formatCurrency(balance.accruedChristmasSalaryAmount),
+      caption: "Acumulado confirmado para el año actual.",
+      color: "primary",
+    },
+    {
+      key: "reserved",
+      icon: "lock",
+      label: "Monto reservado por préstamos",
+      value: formatCurrency(balance.reservedGuaranteeAmount),
+      caption: "Garantía retenida para préstamos activos.",
+      color: "grey-8",
+    },
+    {
+      key: "available",
+      icon: "account_balance_wallet",
+      label: "Disponible sin reservar",
+      value: formatCurrency(balance.availableUnreservedChristmasSalaryAmount),
+      caption: "Monto disponible para nuevas garantías.",
+      color: "secondary",
+    },
+    {
+      key: "pending",
+      icon: "payments",
+      label: "Pendiente pagable",
+      value: formatCurrency(balance.pendingChristmasSalaryPayable),
+      caption: "Monto acumulado pendiente de pago.",
+      color: "positive",
+    },
+  ];
+});
 
 const vacationMetricItems = computed(() => {
   const balance = vacationBalance.value || {};
@@ -1169,6 +1429,35 @@ const loadVacationSummary = async (refresh = false) => {
   }
 };
 
+const loadChristmasSalarySummary = async () => {
+  if (!showEmployeeSections.value) return;
+
+  loadingChristmasSalary.value = true;
+  christmasSalaryError.value = "";
+
+  try {
+    const resp = await methodsHttp.getApi(CHRISTMAS_SALARY_ENDPOINT);
+
+    if (!resp?.ok) {
+      christmasSalaryResponse.value = null;
+      christmasSalaryError.value =
+        resp?.mensaje || "No se pudo cargar el salario de Navidad.";
+      return;
+    }
+
+    christmasSalaryResponse.value = resp;
+  } catch (error) {
+    console.log("loadChristmasSalarySummary error:", error);
+
+    christmasSalaryResponse.value = null;
+    christmasSalaryError.value =
+      error?.response?.data?.mensaje ||
+      "No se pudo cargar el salario de Navidad.";
+  } finally {
+    loadingChristmasSalary.value = false;
+  }
+};
+
 const triggerFileInput = () => {
   fileInput.value?.pickFiles?.();
 };
@@ -1293,6 +1582,7 @@ onMounted(async () => {
   syncUserToForm(auth.user);
   await loadMe();
   await loadVacationSummary();
+  await loadChristmasSalarySummary();
 });
 </script>
 
